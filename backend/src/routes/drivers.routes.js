@@ -1,0 +1,11 @@
+const router = require('express').Router();
+const c = require('../controllers/drivers.controller');
+const { authenticate, authorize } = require('../middlewares/auth.middleware');
+const { auditLog } = require('../middlewares/audit.middleware');
+const logistic = [authenticate, authorize('manager','admin')];
+const all = [authenticate];
+router.get('/', ...all, c.getAll);
+router.post('/',   ...logistic, auditLog('CREATE_DRIVER','Driver'), c.create);
+router.put('/:id', ...logistic, auditLog('UPDATE_DRIVER','Driver'), c.update);
+router.delete('/:id', authenticate, authorize('admin'), auditLog('DELETE_DRIVER','Driver'), c.remove);
+module.exports = router;
