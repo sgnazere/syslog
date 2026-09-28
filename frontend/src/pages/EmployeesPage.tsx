@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useServices } from '../hooks/useEmployees';
 import { Employee } from '../types';
-import { TYPES_CONTRAT, PROJETS } from '../lib/constants';
+import { TYPES_CONTRAT, PROJETS, isAdminRole } from '../lib/constants';
 
 // ── Badge statut employé ──────────────────────────────────────
 const StatusBadge = ({ status }: { status: 'actif' | 'inactif' }) => (
@@ -303,7 +304,8 @@ const DeleteConfirmModal = ({ employee, onConfirm, onCancel, isPending }: {
 };
 
 // ── Carte employé ─────────────────────────────────────────────
-const EmployeeCard = ({ employee, onEdit, onDelete }: {
+const EmployeeCard = ({ employee, canEdit, onEdit, onDelete }: {
+  canEdit: boolean;
   employee: Employee;
   onEdit: () => void;
   onDelete: () => void;
@@ -357,18 +359,22 @@ const EmployeeCard = ({ employee, onEdit, onDelete }: {
       )}
     </div>
 
-    <div className="flex gap-2 mt-4 pt-3 border-t border-slate-100">
-      <button onClick={onEdit} className="btn-secondary flex-1 py-1.5 text-xs">Modifier</button>
-      <button onClick={onDelete}
-        className="flex-1 py-1.5 text-xs text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
-        Supprimer
-      </button>
-    </div>
+    {canEdit && (
+      <div className="flex gap-2 mt-4 pt-3 border-t border-slate-100">
+        <button onClick={onEdit} className="btn-secondary flex-1 py-1.5 text-xs">Modifier</button>
+        <button onClick={onDelete}
+          className="flex-1 py-1.5 text-xs text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+          Supprimer
+        </button>
+      </div>
+    )}
   </div>
 );
 
 // ── Page principale ───────────────────────────────────────────
 export const EmployeesPage = () => {
+  // Les managers consultent ; seuls les administrateurs modifient
+  const canEdit = isAdminRole(useAuth().user?.role);
   const [filters,    setFilters]    = useState({ status: '', search: '' });
   const [viewMode,   setViewMode]   = useState<'grid' | 'list'>('grid');
   const [editing,    setEditing]    = useState<Employee | null>(null);
@@ -411,12 +417,12 @@ export const EmployeesPage = () => {
             {stats.total} employé{stats.total !== 1 ? 's' : ''} enregistré{stats.total !== 1 ? 's' : ''}
           </p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2 flex-shrink-0">
+        {canEdit && <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2 flex-shrink-0">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
           Nouvel employé
-        </button>
+        </button>}
       </div>
 
       {/* Stats */}
@@ -491,7 +497,7 @@ export const EmployeesPage = () => {
       ) : viewMode === 'grid' ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(e => (
-            <EmployeeCard key={e.id} employee={e} onEdit={() => setEditing(e)} onDelete={() => setDeleting(e)} />
+            <EmployeeCard key={e.id} employee={e} canEdit={canEdit} onEdit={() => setEditing(e)} onDelete={() => setDeleting(e)} />
           ))}
         </div>
       ) : (
@@ -530,7 +536,7 @@ export const EmployeesPage = () => {
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={e.status} /></td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2 justify-end">
+                      {canEdit && <div className="flex gap-2 justify-end">
                         <button onClick={() => setEditing(e)}
                           className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">
                           Modifier
@@ -539,7 +545,7 @@ export const EmployeesPage = () => {
                           className="text-xs px-2.5 py-1.5 text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100">
                           Supprimer
                         </button>
-                      </div>
+                      </div>}
                     </td>
                   </tr>
                 ))}

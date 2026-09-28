@@ -159,7 +159,7 @@ const MaintenanceModal = ({
               disabled={isEdit}>
               <option value="">— Sélectionner un véhicule —</option>
               {vehicles.map(v => (
-                <option key={v.id} value={v.id}>
+                <option key={v.id} value={v.id} disabled={!isEdit && v.statut === 'en_mission'}>
                   {v.marque} {v.modele} — {v.immatriculation}
                   {v.statut !== 'disponible' ? ` (${v.statut})` : ''}
                 </option>
@@ -237,7 +237,6 @@ const MaintenanceModal = ({
               <select value={form.statut} onChange={e => set('statut', e.target.value as MaintenanceStatut)} className="input">
                 <option value="planifiee">Planifiée</option>
                 <option value="en_cours">En cours</option>
-                <option value="terminee">Terminée</option>
               </select>
             </div>
           </div>

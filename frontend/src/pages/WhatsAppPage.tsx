@@ -3,6 +3,7 @@
  * Accessible via /whatsapp (admin uniquement)
  */
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -75,6 +76,7 @@ const STEPS = [
     details: [
       'URL du webhook : https://VOTRE_DOMAINE/webhooks/whatsapp',
       'Token de vérification : valeur de WA_VERIFY_TOKEN dans .env',
+      "App Secret de l'application Meta : à copier dans WA_APP_SECRET (vérification des signatures)",
       'Nécessite un accès HTTPS public (hébergement en ligne)',
     ],
   },
@@ -106,18 +108,6 @@ const TEMPLATES = [
     body: 'Bonjour {{1}}, votre mission vers {{2}} du {{3}} a été clôturée ✓. Distance parcourue : {{4}} km. Merci pour votre rapport.',
     params: ['Prénom Nom', 'Commune(s)', 'Date', 'Distance en km'],
   },
-  {
-    name: 'alerte_permis',
-    category: 'UTILITY',
-    body: '⚠ SysLog — Alerte permis : Le permis du chauffeur {{1}} (cat. {{2}}) expire le {{3}}. Veuillez procéder au renouvellement.',
-    params: ['Nom chauffeur', 'Catégorie permis', 'Date expiration'],
-  },
-  {
-    name: 'alerte_licence',
-    category: 'UTILITY',
-    body: '⚠ SysLog — Votre licence expire dans {{1}} jour(s) ({{2}}). Contactez Gesmalync pour renouveler.',
-    params: ['Jours restants', 'Date expiration'],
-  },
 ];
 
 // ── Composant principal ───────────────────────────────────────
@@ -126,6 +116,16 @@ export const WhatsAppPage = () => {
   const [testMessage, setTestMessage] = useState('');
   const [sending,     setSending]     = useState(false);
   const [tab,         setTab]         = useState<'config' | 'templates' | 'test'>('config');
+  const { data: status } = useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn:  () => api.get<{ data: { enabled: boolean; phone_configured: boolean; token_configured: boolean } }>('/whatsapp/status')
+      .then(r => r.data.data),
+  });
+  const statusBadge = !status
+    ? { label: '…', dot: 'bg-slate-300', cls: 'bg-slate-100 text-slate-600' }
+    : status.enabled && status.phone_configured && status.token_configured
+      ? { label: 'Activé', dot: 'bg-emerald-500', cls: 'bg-emerald-50 text-emerald-700' }
+      : { label: 'Désactivé', dot: 'bg-slate-400', cls: 'bg-slate-100 text-slate-600' };
 
   const sendTestMessage = async () => {
     if (!testPhone || !testMessage) return;
@@ -152,9 +152,9 @@ export const WhatsAppPage = () => {
             Configuration de WhatsApp Business API pour les notifications automatiques
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-100 text-slate-600">
-          <span className="w-2 h-2 rounded-full bg-slate-400" />
-          Non configuré
+        <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${statusBadge.cls}`}>
+          <span className={`w-2 h-2 rounded-full ${statusBadge.dot}`} />
+          {statusBadge.label}
         </span>
       </div>
 
@@ -173,7 +173,7 @@ export const WhatsAppPage = () => {
       <div className="flex gap-1 mb-5 border-b border-slate-200">
         {([
           { key: 'config',    label: 'Guide de configuration' },
-          { key: 'templates', label: 'Templates à créer (6)' },
+          { key: 'templates', label: `Templates à créer (${TEMPLATES.length})` },
           { key: 'test',      label: 'Tester l\'envoi' },
         ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
@@ -295,7 +295,7 @@ export const WhatsAppPage = () => {
                 <input value={testPhone} onChange={e => setTestPhone(e.target.value)}
                   placeholder="+225 07 00 00 00 00 ou 0700000000"
                   className="input" />
-                <p className="text-xs text-slate-400 mt-1">Format ivoirien accepté — sera normalisé automatiquement en +225XXXXXXXX</p>
+                <p className="text-xs text-slate-400 mt-1">Numéro ivoirien à 10 chiffres — normalisé automatiquement en +225 XX XX XX XX XX</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Message</label>
@@ -327,8 +327,6 @@ export const WhatsAppPage = () => {
                 { event: 'Demande validée', recipients: 'Initiateur + tous les passagers + chauffeur', template: 'sortie_validee + mission_chauffeur' },
                 { event: 'Demande refusée', recipients: 'Initiateur uniquement', template: 'sortie_refusee' },
                 { event: 'Mission clôturée', recipients: 'Initiateur', template: 'mission_cloturee' },
-                { event: 'Permis expiré', recipients: 'Admin / RH', template: 'alerte_permis' },
-                { event: 'Licence expirante', recipients: 'Admin système', template: 'alerte_licence' },
               ].map(row => (
                 <div key={row.event} className="flex items-start gap-3 text-xs">
                   <div className="w-2 h-2 rounded-full bg-primary mt-1 flex-shrink-0" />

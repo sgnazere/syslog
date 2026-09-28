@@ -57,3 +57,22 @@ export const useRejectRequest = () => {
     onError: (err: any) => toast.error(err?.response?.data?.error || 'Erreur.'),
   });
 };
+
+export const useCompleteRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, km_depart, km_retour }: {
+      id: number; km_depart?: number; km_retour?: number;
+    }) => api.patch(`/requests/${id}/complete`, { km_depart, km_retour }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['requests'] });
+      qc.invalidateQueries({ queryKey: ['vehicles'] });
+      qc.invalidateQueries({ queryKey: ['drivers'] });
+      const dist = res.data?.distance;
+      toast.success(dist != null
+        ? `Mission clôturée — ${dist.toLocaleString('fr-FR')} km parcourus.`
+        : 'Mission clôturée avec succès.');
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error || 'Erreur.'),
+  });
+};

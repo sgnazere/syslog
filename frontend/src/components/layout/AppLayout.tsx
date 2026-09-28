@@ -2,9 +2,12 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useLicenseInfo } from '../../hooks/useLicense';
-import { ROLE_LABELS } from '../../lib/constants';
+import { ROLE_LABELS, hasRole, isAdminRole } from '../../lib/constants';
 import { UserRole, User } from '../../types';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
+import { downloadFile } from '../../lib/api';
+import { ChangePasswordModal } from '../shared/ChangePasswordModal';
 
 interface NavItem { path: string; label: string; roles: UserRole[]; icon: string; }
 
@@ -33,9 +36,14 @@ interface SidebarProps {
   unreadCount: number;
   onClose: () => void;
   onLogout: () => void;
+  onChangePassword: () => void;
 }
 
-const Sidebar = ({ user, initials, visible, unreadCount, onClose, onLogout }: SidebarProps) => (
+const downloadManual = () =>
+  downloadFile('/docs/manual', 'SysLog_Documentation_Utilisateur.docx')
+    .catch(() => toast.error('Téléchargement impossible.'));
+
+const Sidebar = ({ user, initials, visible, unreadCount, onClose, onLogout, onChangePassword }: SidebarProps) => (
   <nav className="flex flex-col h-full" style={{ background: '#1a2744' }}>
     <div className="px-5 py-4 border-b border-white/10">
       <div className="flex items-center gap-2.5">
@@ -86,10 +94,10 @@ const Sidebar = ({ user, initials, visible, unreadCount, onClose, onLogout }: Si
         </div>
       </div>
       {/* Télécharger le manuel (admin + manager) */}
-      {(user.role === 'admin' || user.role === 'manager') && (
-        <a
-          href="/api/docs/manual"
-          download="SysLog_Manuel_Utilisateur_v1.0.0.docx"
+      {hasRole(user.role, ['admin', 'manager']) && (
+        <button
+          type="button"
+          onClick={downloadManual}
           className="w-full flex items-center gap-2 text-white/40 hover:text-white/70 text-xs px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors mb-1"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -98,9 +106,15 @@ const Sidebar = ({ user, initials, visible, unreadCount, onClose, onLogout }: Si
             <line x1="12" y1="18" x2="12" y2="12"/>
             <polyline points="9 15 12 18 15 15"/>
           </svg>
-          Manuel utilisateur
-        </a>
+          Documentation utilisateur
+        </button>
       )}
+      <button
+        onClick={onChangePassword}
+        className="w-full flex items-center gap-2 text-white/40 hover:text-white/70 text-xs px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors mb-1"
+      >
+        <span>🔒</span> Changer mon mot de passe
+      </button>
       <button
         onClick={onLogout}
         className="w-full flex items-center gap-2 text-white/50 hover:text-white text-xs px-2 py-2 rounded-lg hover:bg-white/10 transition-colors"
@@ -116,8 +130,10 @@ export const AppLayout = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const { unreadCount } = useNotifications();
-  const { data: licenseData } = useLicenseInfo();
+  const [changingPassword, setChangingPassword] = useState(false);
+  const mustChangePassword = !!user?.must_change_password;
+  const { unreadCount } = useNotifications(!mustChangePassword);
+  const { data: licenseData } = useLicenseInfo(isAdminRole(user?.role) && !mustChangePassword);
 
   const licenceWarning = (() => {
     const lic = licenseData?.data;
@@ -130,7 +146,7 @@ export const AppLayout = () => {
 
   if (!user) return null;
 
-  const visible = NAV.filter(n => n.roles.includes(user.role));
+  const visible = NAV.filter(n => hasRole(user.role, n.roles));
 
   const initials = [user.prenom, user.nom]
     .filter(Boolean)
@@ -138,13 +154,17 @@ export const AppLayout = () => {
     .join('')
     .slice(0, 2) || user.email[0].toUpperCase();
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const handleLogout = async () => { await logout(); navigate('/login'); };
 
   const sidebarProps: SidebarProps = {
     user, initials, visible, unreadCount,
     onClose: () => setOpen(false),
     onLogout: handleLogout,
+    onChangePassword: () => { setOpen(false); setChangingPassword(true); },
   };
+
+  // Mot de passe défini par un administrateur : changement obligatoire avant tout accès
+  if (mustChangePassword) return <div className="h-screen bg-slate-50"><ChangePasswordModal forced /></div>;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -192,7 +212,7 @@ export const AppLayout = () => {
               : 'bg-amber-400 text-amber-900'
             }`}>
             <span>⚠ {licenceWarning.msg}</span>
-            {user?.role === 'admin' && (
+            {isAdminRole(user?.role) && (
               <button onClick={() => navigate('/license')}
                 className="underline font-semibold hover:opacity-80 whitespace-nowrap">
                 Gérer la licence →
@@ -203,6 +223,7 @@ export const AppLayout = () => {
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <Outlet />
         </main>
+        {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
       </div>
     </div>
   );

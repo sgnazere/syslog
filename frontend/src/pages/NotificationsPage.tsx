@@ -25,7 +25,7 @@ const fmtRelative = (iso: string): string => {
 // ── Carte notification ────────────────────────────────────────
 const NotificationCard = ({ notif, onMarkRead }: {
   notif: Notification;
-  onMarkRead: (id: string) => void;
+  onMarkRead: (id: number) => void;
 }) => {
   const cfg = TYPE_CONFIG[notif.type];
   return (
@@ -67,15 +67,14 @@ const NotificationCard = ({ notif, onMarkRead }: {
 
 // ── Page principale ───────────────────────────────────────────
 export const NotificationsPage = () => {
-  const { notifications, isLoading, unreadCount, markRead } = useNotifications();
+  const { notifications, isLoading, unreadCount, markRead, markAllRead } = useNotifications();
 
-  const handleMarkRead = (id: string) => {
+  const handleMarkRead = (id: number) => {
     markRead.mutate(id);
   };
 
   const handleMarkAllRead = () => {
-    const unread = notifications.filter(n => !n.read);
-    Promise.all(unread.map(n => markRead.mutateAsync(n.id))).catch(() => {});
+    markAllRead.mutate();
   };
 
   return (
@@ -93,7 +92,7 @@ export const NotificationsPage = () => {
         {unreadCount > 0 && (
           <button
             onClick={handleMarkAllRead}
-            disabled={markRead.isPending}
+            disabled={markAllRead.isPending}
             className="btn-secondary flex items-center gap-2 flex-shrink-0 text-sm"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

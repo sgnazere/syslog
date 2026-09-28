@@ -5,16 +5,10 @@ import { useRequests } from '../hooks/useRequests';
 import { useVehicles } from '../hooks/useVehicles';
 import { useDrivers } from '../hooks/useDrivers';
 import { DemandeDeplacement, DemandeStatut } from '../types';
-import { DEMANDE_STATUT_CONFIG } from '../lib/constants';
+import { DEMANDE_STATUT_CONFIG, isAdminRole } from '../lib/constants';
+import { groupRequests, normISO, todayISO, fmtTime, perDestination, RequestGroup } from '../lib/requestGroups';
 
 // ── Helpers date ──────────────────────────────────────────────
-const normISO = (d: any): string => {
-  if (!d) return '';
-  if (typeof d === 'string') return d.slice(0, 10);
-  if (d instanceof Date)     return d.toISOString().slice(0, 10);
-  return String(d).slice(0, 10);
-};
-const todayISO  = () => new Date().toISOString().split('T')[0];
 const isToday   = (d: string) => normISO(d) === todayISO();
 const isThisWeek = (d: string) => {
   const date  = new Date(normISO(d) + 'T00:00:00');
@@ -25,68 +19,7 @@ const isThisWeek = (d: string) => {
 };
 const fmtDate = (d: string) =>
   new Date(normISO(d) + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' });
-const fmtTime = (t?: string) => t ? t.slice(0, 5) : '';
 
-// ── Type groupe de demandes ───────────────────────────────────
-interface RequestGroup {
-  key:              string;
-  requests:         (DemandeDeplacement & { passagers?: any[] })[];
-  employe_id:       number;
-  employe_name:     string;
-  employe_poste?:   string;
-  communes:         { id: number; nom: string }[];
-  date_deplacement: string;
-  heure_depart:     string;
-  heure_retour:     string;
-  objectif:         string;
-  statut:           DemandeStatut;
-  passagers:        any[];
-  vehicule_id?:     number;
-  chauffeur_id?:    number;
-  immatriculation?: string;
-  marque?:          string;
-  modele?:          string;
-  chauffeur_name?:  string;
-}
-
-const makeGroupKey = (r: DemandeDeplacement) =>
-  `${r.employe_id}|${normISO(r.date_deplacement)}|${fmtTime(r.heure_depart)}|${r.objectif.trim()}`;
-
-const groupRequests = (
-  requests: (DemandeDeplacement & { passagers?: any[] })[]
-): RequestGroup[] => {
-  const map = new Map<string, RequestGroup>();
-  for (const r of requests) {
-    const key = makeGroupKey(r);
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        requests:         [],
-        employe_id:       r.employe_id,
-        employe_name:     r.employe_name,
-        employe_poste:    r.employe_poste,
-        communes:         [],
-        date_deplacement: normISO(r.date_deplacement),
-        heure_depart:     r.heure_depart,
-        heure_retour:     r.heure_retour,
-        objectif:         r.objectif,
-        statut:           r.statut,
-        passagers:        r.passagers || [],
-        vehicule_id:      r.vehicule_id,
-        chauffeur_id:     r.chauffeur_id,
-        immatriculation:  r.immatriculation,
-        marque:           r.marque,
-        modele:           r.modele,
-        chauffeur_name:   r.chauffeur_name,
-      });
-    }
-    const g = map.get(key)!;
-    g.requests.push(r);
-    if (!g.communes.some(c => c.id === r.commune_id))
-      g.communes.push({ id: r.commune_id, nom: r.commune_nom });
-  }
-  return Array.from(map.values());
-};
 
 // ── StatCard ──────────────────────────────────────────────────
 const StatCard = ({ icon, value, label, sub, accent, to }: {
@@ -171,7 +104,7 @@ const LogisticsDashboard = ({ role }: { role: string }) => {
 
   const stats = useMemo(() => {
     // ── Groupement : 1 trajet = 1 groupe ─────────────────────
-    const allGroups = groupRequests(requests as (DemandeDeplacement & { passagers?: any[] })[]);
+    const allGroups = groupRequests(requests);
 
     const groupsEnAttente = allGroups.filter(g => g.statut === 'en_attente');
     const groupsValidees  = allGroups.filter(g => g.statut === 'validee');
@@ -189,7 +122,7 @@ const LogisticsDashboard = ({ role }: { role: string }) => {
     // ── Regroupements inter-personnes (DIFFÉRENTS employés, même commune + date) ──
     // On ignore les demandes du même groupe (même personne multi-destinations)
     const regMap: Record<string, DemandeDeplacement[]> = {};
-    requests.filter(r => r.statut === 'en_attente').forEach(r => {
+    requests.filter(r => r.statut === 'en_attente').flatMap(perDestination).forEach(r => {
       const key = `${r.commune_id}_${normISO(r.date_deplacement)}`;
       if (!regMap[key]) regMap[key] = [];
       // Un seul représentant par employé (évite les doublons multi-destinations)
@@ -213,7 +146,7 @@ const LogisticsDashboard = ({ role }: { role: string }) => {
       return diff <= 30 && diff >= -30;
     });
     const communeCounts: Record<string, number> = {};
-    last30.forEach(r => { communeCounts[r.commune_nom] = (communeCounts[r.commune_nom] || 0) + 1; });
+    last30.flatMap(perDestination).forEach(r => { communeCounts[r.commune_nom] = (communeCounts[r.commune_nom] || 0) + 1; });
     const topCommunes = Object.entries(communeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
     return {
@@ -442,7 +375,7 @@ const LogisticsDashboard = ({ role }: { role: string }) => {
           )}
 
           {/* Vue d'ensemble admin */}
-          {role === 'admin' && (
+          {isAdminRole(role as any) && (
             <div className="card p-5 bg-slate-900 border-slate-900">
               <h3 className="font-semibold text-white text-sm mb-3">Vue d'ensemble</h3>
               <div className="grid grid-cols-2 gap-3 text-center">
@@ -482,7 +415,7 @@ const UserDashboard = () => {
   const { data: requests = [], isLoading } = useRequests({});
 
   const { groups, stats } = useMemo(() => {
-    const groups = groupRequests(requests as (DemandeDeplacement & { passagers?: any[] })[]);
+    const groups = groupRequests(requests);
     return {
       groups,
       stats: {
@@ -507,7 +440,7 @@ const UserDashboard = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon="📋" value={stats.total}     label="Mes demandes"  to="/requests" />
         <StatCard icon="⏳" value={stats.enAttente} label="En attente"    accent="text-amber-600" />
-        <StatCard icon="✅" value={stats.validees + stats.terminees}  label="Validées"     accent="text-emerald-600" />
+        <StatCard icon="✅" value={stats.validees + stats.terminees}  label="Validées / terminées"     accent="text-emerald-600" />
         <StatCard icon="❌" value={stats.refusees}  label="Refusées"     accent="text-red-500" />
       </div>
 

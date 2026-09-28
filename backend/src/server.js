@@ -1,76 +1,101 @@
-require('dotenv').config();
+const env      = require('./config/env');
 const express  = require('express');
 const cors     = require('cors');
 const helmet   = require('helmet');
 const morgan   = require('morgan');
 const rateLimit = require('express-rate-limit');
+const { query } = require('./config/database');
+const { fromPgError } = require('./utils/httpError');
+const { checkLicense } = require('./middlewares/license.middleware');
 
 const app = express();
 
+// Derrière un reverse proxy (Nginx), req.ip doit refléter l'adresse réelle du client
+app.set('trust proxy', env.trustProxy);
+
 // ── Sécurité ──────────────────────────────────────────────────
 app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(cors({ origin: env.frontendUrl, credentials: true }));
+
+// ── Parsers (le corps brut est conservé pour vérifier la signature du webhook Meta) ──
+app.use(express.json({ limit: '1mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+if (process.env.NODE_ENV !== 'test') app.use(morgan(env.isProduction ? 'combined' : 'dev'));
 
 // ── Rate limiting ─────────────────────────────────────────────
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+app.use('/api/', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Trop de requêtes, réessayez dans 15 minutes.' },
-});
-app.use('/api/', limiter);
+}));
 
-const authLimiter = rateLimit({
+// Connexion : limite par couple (adresse IP, e-mail) pour ne pas bloquer toute l'organisation
+app.use('/api/auth/login', rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: { error: 'Trop de tentatives de connexion.' },
-});
-app.use('/api/auth/login', authLimiter);
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.ip}|${String(req.body?.email || '').toLowerCase()}`,
+  message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
+}));
 
-// ── Parsers ───────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
+// ── Webhooks publics (hors licence) ───────────────────────────
+app.use('/webhooks', require('./routes/webhooks.routes'));
 
-// ── Middleware de licence (après auth, avant les routes métier) ──
-const { checkLicense } = require('./middlewares/license.middleware');
+// ── API ───────────────────────────────────────────────────────
 app.use('/api', checkLicense);
-
-// ── Routes ────────────────────────────────────────────────────
 app.use('/api/auth',          require('./routes/auth.routes'));
 app.use('/api/license',       require('./routes/license.routes'));
-app.use('/api/users',          require('./routes/users.routes'));
+app.use('/api/users',         require('./routes/users.routes'));
 app.use('/api/employees',     require('./routes/employees.routes'));
 app.use('/api/vehicles',      require('./routes/vehicles.routes'));
 app.use('/api/drivers',       require('./routes/drivers.routes'));
 app.use('/api/requests',      require('./routes/requests.routes'));
 app.use('/api/notifications', require('./routes/notifications.routes'));
-app.use('/api/reports',       require('./routes/reports.routes'));
 app.use('/api/holidays',      require('./routes/holidays.routes'));
-app.use('/api/communes',  require('./routes/communes.routes'));
+app.use('/api/communes',      require('./routes/communes.routes'));
 app.use('/api/maintenance',   require('./routes/maintenance.routes'));
 app.use('/api/docs',          require('./routes/docs.routes'));
-app.use('/webhooks',          require('./routes/webhooks.routes'));
-app.use('/api/whatsapp',      require('./routes/webhooks.routes')); // test endpoint
+app.use('/api/whatsapp',      require('./routes/whatsapp.routes'));
 app.use('/api/audit',         require('./routes/audit.routes'));
 
-// ── Health check ─────────────────────────────────────────────
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+// ── Health check (vérifie aussi la base de données) ───────────
+app.get('/health', async (req, res) => {
+  try {
+    await query('SELECT 1');
+    res.json({ status: 'ok', database: 'ok', timestamp: new Date() });
+  } catch {
+    res.status(503).json({ status: 'degraded', database: 'unavailable', timestamp: new Date() });
+  }
+});
 
 // ── 404 ───────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: 'Route non trouvée.' }));
 
 // ── Gestion d'erreurs globale ────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production'
-      ? 'Erreur serveur interne.'
-      : err.message,
-  });
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Corps de requête JSON invalide.' });
+  if (err.type === 'entity.too.large')    return res.status(413).json({ error: 'Requête trop volumineuse.' });
+
+  const mapped = err.expose ? err : fromPgError(err);
+  if (mapped) return res.status(mapped.status).json({ error: mapped.message, ...(mapped.code && { code: mapped.code }) });
+
+  console.error(err.stack || err);
+  res.status(500).json({ error: env.isProduction ? 'Erreur serveur interne.' : err.message });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Serveur démarré sur le port ${PORT}`));
+if (require.main === module) {
+  app.listen(env.port, async () => {
+    console.log(`🚀 Serveur démarré sur le port ${env.port}`);
+    try {
+      await query('SELECT 1');
+      console.log('✅ PostgreSQL connecté');
+    } catch (err) {
+      console.error('❌ PostgreSQL connexion échouée:', err.message);
+    }
+  });
+}
+
+module.exports = app;

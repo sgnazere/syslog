@@ -3,9 +3,44 @@ const fs         = require('fs');
 const { marked } = require('marked');
 const HTMLtoDOCX = require('html-to-docx');
 
-// Chemin vers le manuel Markdown (à la racine du projet Syslog)
-// __dirname = backend/src/controllers → remonter 3 niveaux
-const MANUAL_PATH = path.join(__dirname, '../../../MANUEL_UTILISATEUR.md');
+// Documentation utilisateur (docs/ à la racine du dépôt)
+const MANUAL_PATH = path.join(__dirname, '../../../docs/DOCUMENTATION_UTILISATEUR.md');
+const DOCS_DIR    = path.dirname(MANUAL_PATH);
+
+// Largeur maximale d'une image dans le document Word (pixels ≈ largeur utile de la page)
+const MAX_IMAGE_WIDTH = 600;
+
+/** Dimensions d'une image JPEG (lecture de l'en-tête SOF). */
+const jpegSize = (buf) => {
+  let i = 2;
+  while (i < buf.length) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const marker = buf[i + 1];
+    const len = buf.readUInt16BE(i + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    }
+    i += 2 + len;
+  }
+  return null;
+};
+
+/**
+ * Remplace les images locales (docs/images/*.jpg) par leur contenu encodé,
+ * redimensionné à la largeur de la page. Les autres images sont retirées.
+ */
+const embedImages = (html) => html.replace(/<img\s+[^>]*src="([^"]+)"[^>]*>/g, (tag, src) => {
+  const file = path.resolve(DOCS_DIR, decodeURIComponent(src));
+  if (!file.startsWith(path.join(DOCS_DIR, 'images')) || !/\.jpe?g$/i.test(file) || !fs.existsSync(file)) return '';
+  const buf  = fs.readFileSync(file);
+  const size = jpegSize(buf) || { width: MAX_IMAGE_WIDTH, height: Math.round(MAX_IMAGE_WIDTH * 0.625) };
+  // Les captures « téléphone » sont réduites davantage pour tenir côte à côte
+  const maxWidth = size.height > size.width ? 260 : MAX_IMAGE_WIDTH;
+  const width  = Math.min(maxWidth, size.width);
+  const height = Math.round(size.height * width / size.width);
+  const alt = (tag.match(/alt="([^"]*)"/) || [])[1] || '';
+  return `<img src="data:image/jpeg;base64,${buf.toString('base64')}" width="${width}" height="${height}" alt="${alt}">`;
+});
 
 /**
  * GET /api/docs/manual
@@ -20,7 +55,7 @@ const downloadManual = async (req, res, next) => {
     const markdown = fs.readFileSync(MANUAL_PATH, 'utf-8');
 
     // ── Convertir Markdown → HTML ──────────────────────────────
-    const htmlBody = marked.parse(markdown);
+    const htmlBody = embedImages(marked.parse(markdown));
 
     // HTML complet avec styles inline pour le DOCX
     const htmlContent = `
@@ -62,7 +97,7 @@ const downloadManual = async (req, res, next) => {
   <table style="width:100%; border-bottom: 2px solid #1a4f8a; margin-bottom: 6pt;">
     <tr>
       <td style="font-family:Calibri; font-size:9pt; color:#1a4f8a; font-weight:bold;">
-        SysLog — Manuel Utilisateur v1.0.0
+        SysLog — Documentation utilisateur
       </td>
       <td style="text-align:right; font-family:Calibri; font-size:9pt; color:#64748b;">
         ONG Espace Confiance · Gesmalync © 2026
@@ -88,7 +123,7 @@ const downloadManual = async (req, res, next) => {
 
     // ── Options de génération DOCX ─────────────────────────────
     const options = {
-      title:       'Manuel Utilisateur SysLog v1.0.0',
+      title:       'Documentation utilisateur SysLog',
       subject:     'Documentation officielle SysLog — ONG Espace Confiance',
       creator:     'Gesmalync — Serges Alain GNAZERE',
       description: 'Manuel utilisateur complet du système de gestion logistique SysLog',
@@ -112,7 +147,7 @@ const downloadManual = async (req, res, next) => {
     const docxBuffer = await HTMLtoDOCX(htmlContent, headerHTML, options, footerHTML);
 
     // ── Envoyer en téléchargement ──────────────────────────────
-    const filename = `SysLog_Manuel_Utilisateur_v1.0.0.docx`;
+    const filename = `SysLog_Documentation_Utilisateur.docx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', docxBuffer.length);

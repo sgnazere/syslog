@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { query } = require('../config/database');
 
 /** GET /api/vehicles  →  table vehicules */
@@ -17,47 +16,58 @@ const getAll = async (req, res, next) => {
 
 const getById = async (req, res, next) => {
   try {
-    const r = await query('SELECT * FROM vehicules WHERE id=$1', [req.params.id]);
+    const r = await query('SELECT * FROM vehicules WHERE id = $1', [req.params.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Véhicule introuvable.' });
     res.json({ data: r.rows[0] });
   } catch (err) { next(err); }
 };
 
+const params = (b) => [
+  b.immatriculation.trim().toUpperCase(), b.marque, b.modele, b.type_vehicule, b.capacite,
+  b.kilometrage || 0, b.annee_mise_service || null, b.energie || 'Diesel', b.statut || null,
+];
+
 const create = async (req, res, next) => {
   try {
-    const { immatriculation, marque, modele, type_vehicule, capacite, kilometrage, annee_mise_service, energie } = req.body;
-    const exists = await query('SELECT id FROM vehicules WHERE immatriculation=$1', [immatriculation.toUpperCase()]);
-    if (exists.rows[0]) return res.status(409).json({ error: 'Immatriculation déjà utilisée.' });
     const r = await query(
-      `INSERT INTO vehicules (immatriculation, marque, modele, type_vehicule, capacite, kilometrage, annee_mise_service, energie)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [immatriculation.toUpperCase(), marque, modele, type_vehicule || '', capacite, kilometrage || 0, annee_mise_service || null, energie || 'Diesel']
+      `INSERT INTO vehicules (immatriculation, marque, modele, type_vehicule, capacite, kilometrage, annee_mise_service, energie, statut)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9::vehicule_statut, 'disponible')) RETURNING *`,
+      params(req.body)
     );
     res.status(201).json({ data: r.rows[0], message: 'Véhicule ajouté.' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Immatriculation déjà utilisée.' });
+    next(err);
+  }
 };
 
 const update = async (req, res, next) => {
   try {
-    const { immatriculation, marque, modele, type_vehicule, capacite, kilometrage, annee_mise_service, statut, energie } = req.body;
     const r = await query(
       `UPDATE vehicules
-       SET immatriculation=$1, marque=$2, modele=$3, type_vehicule=$4,
-           capacite=$5, kilometrage=$6, annee_mise_service=$7, statut=$8, energie=$9
-       WHERE id=$10 RETURNING *`,
-      [immatriculation.toUpperCase(), marque, modele, type_vehicule || '', capacite, kilometrage || 0, annee_mise_service || null, statut, energie || 'Diesel', req.params.id]
+       SET immatriculation = $1, marque = $2, modele = $3, type_vehicule = $4, capacite = $5,
+           kilometrage = $6, annee_mise_service = $7, energie = $8, statut = COALESCE($9::vehicule_statut, statut)
+       WHERE id = $10 RETURNING *`,
+      [...params(req.body), req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Véhicule introuvable.' });
     res.json({ data: r.rows[0], message: 'Véhicule mis à jour.' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Immatriculation déjà utilisée.' });
+    next(err);
+  }
 };
 
 const remove = async (req, res, next) => {
   try {
-    const r = await query('DELETE FROM vehicules WHERE id=$1 RETURNING id', [req.params.id]);
+    const r = await query('DELETE FROM vehicules WHERE id = $1 RETURNING id', [req.params.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Véhicule introuvable.' });
     res.json({ message: 'Véhicule supprimé.' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === '23503')
+      return res.status(409).json({ error: 'Ce véhicule a un historique (missions, maintenance) : passez-le plutôt « hors service ».' });
+    next(err);
+  }
 };
 
 module.exports = { getAll, getById, create, update, remove };

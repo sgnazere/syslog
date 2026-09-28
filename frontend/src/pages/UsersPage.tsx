@@ -1,11 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useUsers, useCreateUser, useUpdateUser, useToggleUserActive, useResetUserPassword } from '../hooks/useUsers';
-import { useActiveEmployees } from '../hooks/useEmployees';
+import { useEmployees } from '../hooks/useEmployees';
+import { passwordProblem, PASSWORD_HINT } from '../components/shared/ChangePasswordModal';
 import { User, UserRole } from '../types';
-import { ROLE_LABELS, ROLE_COLORS } from '../lib/constants';
+import { ROLE_LABELS, ROLE_COLORS, isAdminRole } from '../lib/constants';
+import { useAuth } from '../contexts/AuthContext';
 
 // ── Config rôles ──────────────────────────────────────────────
 const ROLE_AVATAR_BG: Record<UserRole, string> = {
+  superadmin: 'bg-slate-800 text-white',
   admin:   'bg-red-100   text-red-700',
   manager: 'bg-amber-100 text-amber-700',
   user:    'bg-blue-100  text-blue-700',
@@ -15,6 +18,7 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'user',    label: 'Utilisateur' },
   { value: 'manager', label: 'Manager'     },
   { value: 'admin',   label: 'Administrateur' },
+  { value: 'superadmin', label: 'Super-administrateur' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -104,8 +108,8 @@ const UserModal = ({
     if (!form.nom.trim())     e.nom    = 'Nom requis';
     if (!form.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       e.email = 'Email valide requis';
-    if (!isEdit && form.password.length < 6)
-      e.password = 'Mot de passe min. 6 caractères';
+    if (!isEdit && passwordProblem(form.password))
+      e.password = `Mot de passe : ${passwordProblem(form.password)}`;
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -140,6 +144,7 @@ const UserModal = ({
   const isSaving = createMutation.isPending || updateMutation.isPending;
   // En mode création, proposer les employés sans compte ; en édition, tous les employés actifs
   const empOptions = isEdit ? allEmployees : availableEmployees;
+  const isSuperAdmin = useAuth().user?.role === 'superadmin';
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -210,11 +215,12 @@ const UserModal = ({
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Rôle *</label>
             <select value={form.role} onChange={e => set('role', e.target.value as UserRole)} className="input">
-              {ROLE_OPTIONS.map(r => (
+              {ROLE_OPTIONS.filter(r => r.value !== 'superadmin' || isSuperAdmin).map(r => (
                 <option key={r.value} value={r.value}>{r.label}</option>
               ))}
             </select>
             <p className="text-xs text-slate-400 mt-1">
+              {form.role === 'superadmin' && 'Tous les droits administrateur + émission et suspension des licences, gestion des super-administrateurs.'}
               {form.role === 'admin'   && 'Accès complet — gestion des comptes, audit, jours fériés.'}
               {form.role === 'manager' && 'Validation des demandes, gestion du parc et des chauffeurs.'}
               {form.role === 'user'    && 'Création de demandes de sortie, consultation du calendrier.'}
@@ -253,7 +259,7 @@ const UserModal = ({
                   type={showPwd ? 'text' : 'password'}
                   value={form.password}
                   onChange={e => set('password', e.target.value)}
-                  placeholder="Min. 6 caractères"
+                  placeholder={PASSWORD_HINT}
                   className={`input pr-10 ${errors.password ? 'border-red-400' : ''}`}
                 />
                 <button
@@ -306,7 +312,7 @@ const ResetPasswordModal = ({ user, onClose }: { user: User; onClose: () => void
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (pwd.length < 6)     e.pwd     = 'Minimum 6 caractères';
+    if (passwordProblem(pwd)) e.pwd   = passwordProblem(pwd)!;
     if (pwd !== confirm)    e.confirm  = 'Les mots de passe ne correspondent pas';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -337,7 +343,7 @@ const ResetPasswordModal = ({ user, onClose }: { user: User; onClose: () => void
             <div className="relative">
               <input type={show ? 'text' : 'password'} value={pwd}
                 onChange={e => { setPwd(e.target.value); setErrors(er => ({ ...er, pwd: '' })); }}
-                placeholder="Min. 6 caractères"
+                placeholder={PASSWORD_HINT}
                 className={`input pr-10 ${errors.pwd ? 'border-red-400' : ''}`} />
               <button type="button" onClick={() => setShow(v => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm">
@@ -360,13 +366,14 @@ const ResetPasswordModal = ({ user, onClose }: { user: User; onClose: () => void
           {pwd.length > 0 && (
             <div className="space-y-1">
               <div className="flex gap-1">
-                {[6, 8, 10, 12].map(n => (
+                {[10, 12, 14, 16].map(n => (
                   <div key={n} className={`h-1 flex-1 rounded-full transition-colors
-                    ${pwd.length >= n ? (n <= 6 ? 'bg-red-400' : n <= 8 ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-slate-200'}`} />
+                    ${pwd.length >= n ? (n <= 10 ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-slate-200'}`} />
                 ))}
               </div>
               <p className="text-xs text-slate-400">
-                {pwd.length < 6 ? 'Trop court' : pwd.length < 8 ? 'Faible' : pwd.length < 10 ? 'Moyen' : 'Fort'}
+                {passwordProblem(pwd) ? 'Insuffisant' : pwd.length < 12 ? 'Correct' : 'Fort'}
+                {' · '}L'utilisateur devra le changer à sa prochaine connexion.
               </p>
             </div>
           )}
@@ -396,11 +403,13 @@ const ResetPasswordModal = ({ user, onClose }: { user: User; onClose: () => void
 // ── Carte utilisateur (vue grille) ────────────────────────────
 const UserCard = ({
   user,
+  canManage,
   onEdit,
   onResetPwd,
   onToggle,
 }: {
   user:       User;
+  canManage:  boolean;
   onEdit:     () => void;
   onResetPwd: () => void;
   onToggle:   () => void;
@@ -453,7 +462,7 @@ const UserCard = ({
     </div>
 
     {/* Actions */}
-    <div className="pt-3 border-t border-slate-100 flex gap-2">
+    {canManage && <div className="pt-3 border-t border-slate-100 flex gap-2">
       <button onClick={onEdit} className="btn-secondary flex-1 py-1.5 text-xs">
         Modifier
       </button>
@@ -471,7 +480,7 @@ const UserCard = ({
         title={user.is_active ? 'Désactiver le compte' : 'Activer le compte'}>
         {user.is_active ? '✕' : '✓'}
       </button>
-    </div>
+    </div>}
   </div>
 );
 
@@ -484,7 +493,7 @@ export const UsersPage = () => {
   const [resetting,  setResetting]  = useState<User | null>(null);
 
   const { data: users = [], isLoading } = useUsers(filters.search || undefined);
-  const { data: employees = [] }        = useActiveEmployees();
+  const { data: employees = [] }        = useEmployees('actif');
   const toggleMutation                  = useToggleUserActive();
 
   // Filtre côté client (role, active)
@@ -499,9 +508,13 @@ export const UsersPage = () => {
 
   const availableEmployees = employees.filter(e => !users.find(u => u.employee_id === e.id));
 
+  // Seul un super-administrateur agit sur les comptes super-administrateur
+  const me = useAuth().user;
+  const canManageUser = (u: User) => me?.role === 'superadmin' || u.role !== 'superadmin';
+
   const stats = {
     total:    users.length,
-    admins:   users.filter(u => u.role === 'admin').length,
+    admins:   users.filter(u => isAdminRole(u.role)).length,
     managers: users.filter(u => u.role === 'manager').length,
     actifs:   users.filter(u => u.is_active).length,
     inactifs: users.filter(u => !u.is_active).length,
@@ -615,6 +628,7 @@ export const UsersPage = () => {
             <UserCard
               key={u.id}
               user={u}
+              canManage={canManageUser(u)}
               onEdit={() => setEditing(u)}
               onResetPwd={() => setResetting(u)}
               onToggle={() => toggleMutation.mutate({ id: u.id, isActive: !u.is_active })}
@@ -666,7 +680,7 @@ export const UsersPage = () => {
                       {fmtDate(u.last_login)}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2 justify-end">
+                      {canManageUser(u) && <div className="flex gap-2 justify-end">
                         <button onClick={() => setEditing(u)}
                           className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">
                           Modifier
@@ -685,7 +699,7 @@ export const UsersPage = () => {
                             }`}>
                           {u.is_active ? 'Désactiver' : 'Activer'}
                         </button>
-                      </div>
+                      </div>}
                     </td>
                   </tr>
                 ))}
