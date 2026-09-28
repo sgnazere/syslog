@@ -1,4 +1,4 @@
-const bcrypt = require('bcryptjs');
+const { hashPassword, verifyPassword } = require('../utils/password');
 const jwt    = require('jsonwebtoken');
 const { query, withTransaction } = require('../config/database');
 const { jwtSecret, jwtExpiresIn } = require('../config/env');
@@ -9,7 +9,7 @@ const { getLicenseFromDB } = require('./license.controller');
 const MAX_SESSIONS_PER_USER = 3;
 
 // Empreinte factice : bcrypt est exécuté même pour un e-mail inconnu (temps de réponse homogène)
-const DUMMY_HASH = bcrypt.hashSync('syslog-compte-inexistant', 12);
+const DUMMY_HASH = require('bcrypt').hashSync('syslog-compte-inexistant', 12);
 
 const publicUser = (u) => ({
   id:                   u.id,
@@ -34,7 +34,7 @@ const login = async (req, res, next) => {
     );
     const user = result.rows[0];
 
-    const valid = await bcrypt.compare(password, user?.password || DUMMY_HASH);
+    const valid = await verifyPassword(password, user?.password || DUMMY_HASH);
     if (!user || !user.is_active || !valid) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
@@ -113,12 +113,12 @@ const changePassword = async (req, res, next) => {
     const user = result.rows[0];
     if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
 
-    if (!(await bcrypt.compare(currentPassword, user.password)))
+    if (!(await verifyPassword(currentPassword, user.password)))
       return res.status(401).json({ error: 'Mot de passe actuel incorrect.' });
     if (currentPassword === newPassword)
       return res.status(422).json({ error: 'Le nouveau mot de passe doit être différent de l\'actuel.' });
 
-    const hash = await bcrypt.hash(newPassword, 12);
+    const hash = await hashPassword(newPassword);
     await withTransaction(async (client) => {
       await client.query(
         'UPDATE users SET password = $1, must_change_password = false WHERE id = $2',

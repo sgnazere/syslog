@@ -8,7 +8,7 @@ require('dotenv').config();
 require('./setup');
 const test   = require('node:test');
 const assert = require('node:assert');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../src/utils/password');
 
 const enabled = process.env.INTEGRATION === '1';
 
@@ -43,7 +43,7 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
       invalidateCache();
     }
 
-    const hash = await bcrypt.hash('Provisoire2026x', 12);
+    const hash = await hashPassword('Provisoire2026x');
     const a = await pool.query(
       `INSERT INTO users (nom, prenom, email, password, role, must_change_password)
        VALUES ('Test', 'Admin', 'integration.admin@syslog.test', $1, 'admin', true) RETURNING id`, [hash]);

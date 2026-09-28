@@ -1,4 +1,4 @@
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../utils/password');
 const { query, withTransaction } = require('../config/database');
 const { clearSessionCache } = require('../middlewares/auth.middleware');
 const { HttpError } = require('../utils/httpError');
@@ -46,6 +46,19 @@ const assertCanManage = (actor, targetRole, newRole) => {
   if (actor.role === 'superadmin') return;
   if (targetRole === 'superadmin' || newRole === 'superadmin')
     throw new HttpError(403, 'Seul un super-administrateur peut gérer les comptes super-administrateur.');
+};
+
+/**
+ * Limite d'utilisateurs actifs de la licence (comptes super-administrateur non comptés).
+ * `excludeId` : compte en cours de modification, déjà compté s'il est actif.
+ */
+const assertUserQuota = async (client, excludeId = 0) => {
+  const lic = (await client.query(`SELECT max_utilisateurs FROM licences WHERE statut = 'active' LIMIT 1`)).rows[0];
+  if (!lic) return;
+  const r = await client.query(
+    `SELECT COUNT(*) AS n FROM users WHERE is_active = true AND role != 'superadmin' AND id != $1`, [excludeId]);
+  if (parseInt(r.rows[0].n, 10) >= lic.max_utilisateurs)
+    throw new HttpError(403, `Limite de la licence atteinte : ${lic.max_utilisateurs} utilisateurs actifs au maximum.`);
 };
 
 const revokeSessions = (client, userId) =>
@@ -104,7 +117,8 @@ const create = async (req, res, next) => {
     const exists = await query('SELECT id FROM users WHERE LOWER(email) = $1', [finalEmail]);
     if (exists.rows[0]) return res.status(409).json({ error: 'Cet email est déjà utilisé.' });
 
-    const hash = await bcrypt.hash(password, 12);
+    if (role !== 'superadmin') await assertUserQuota({ query });
+    const hash = await hashPassword(password);
     const r = await query(
       `INSERT INTO users (employee_id, nom, prenom, email, password, role, must_change_password)
        VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id`,
@@ -146,6 +160,9 @@ const update = async (req, res, next) => {
       if (losesAdmin && await countOtherActiveAdmins(client, targetId) === 0)
         throw new HttpError(400, 'Impossible : il doit rester au moins un administrateur actif.');
 
+      if (nextActive && role !== 'superadmin' && (!current.is_active || current.role === 'superadmin'))
+        await assertUserQuota(client, targetId);
+
       await client.query(
         `UPDATE users SET employee_id = $1, nom = $2, prenom = $3, email = $4, role = $5, is_active = $6
          WHERE id = $7`,
@@ -175,6 +192,7 @@ const toggleActive = async (req, res, next) => {
       if (ADMIN_ROLES.includes(current.role) && current.is_active && await countOtherActiveAdmins(client, targetId) === 0)
         throw new HttpError(400, 'Impossible : il doit rester au moins un administrateur actif.');
 
+      if (!current.is_active && current.role !== 'superadmin') await assertUserQuota(client, targetId);
       await client.query('UPDATE users SET is_active = NOT is_active WHERE id = $1', [targetId]);
       if (current.is_active) await revokeSessions(client, targetId);
       return findUser(targetId, client);
@@ -189,7 +207,7 @@ const toggleActive = async (req, res, next) => {
 /** PUT /api/users/:id/reset-password — ferme les sessions et impose un changement */
 const resetPassword = async (req, res, next) => {
   try {
-    const hash = await bcrypt.hash(req.body.newPassword, 12);
+    const hash = await hashPassword(req.body.newPassword);
     const updated = await withTransaction(async (client) => {
       const current = (await client.query('SELECT role FROM users WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
       if (!current) return false;

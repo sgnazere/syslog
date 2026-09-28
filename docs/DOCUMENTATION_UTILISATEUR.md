@@ -412,7 +412,7 @@ Le super-administrateur est réservé à l'**éditeur** de SysLog. Il a tous les
 Menu **🔑 Licence** → onglet **✦ Générer une licence** (visible uniquement pour le super-administrateur) :
 
 1. **Organisation** \*, **Contact**, **Date d'expiration** \*.
-2. **Max utilisateurs** et **Max connexions simultanées**.
+2. **Max utilisateurs** (comptes actifs, super-administrateurs non compris) et **Max connexions simultanées** (personnes connectées en même temps) — 500 par défaut.
 3. **Notes internes** (facultatif), puis **✦ Générer la licence**.
 
 ![Générer une licence](images/40-superadmin-generer-licence.jpg)
@@ -442,6 +442,7 @@ L'affichage s'adapte aux petits écrans. Le menu est replié : touchez **☰** e
 | « Email ou mot de passe incorrect. » | Identifiants erronés, ou compte désactivé | Vérifiez la saisie ; sinon contactez l'administrateur |
 | « Trop de tentatives de connexion. » | Trop d'essais pour ce compte depuis ce poste | Attendez 15 minutes |
 | « Nombre maximum d'utilisateurs connectés simultanément atteint » | Limite de la licence atteinte | Réessayez plus tard ou prévenez l'administrateur |
+| « Limite de la licence atteinte : N utilisateurs actifs au maximum » | Création ou réactivation d'un compte au-delà de la licence | Désactivez les comptes des personnes parties ou demandez une licence plus large |
 | « Système non licencié » / « Licence expirée » / « Licence suspendue » | La licence n'est pas valide | Prévenez l'administrateur |
 | Retour soudain à la page de connexion | Session expirée (8 h), déconnexion ailleurs, compte modifié par un administrateur | Reconnectez-vous |
 | « Un employé ne peut pas avoir plusieurs demandes pour la même date » | Une demande existe déjà ce jour-là pour cet initiateur | Regroupez les destinations dans une seule demande |

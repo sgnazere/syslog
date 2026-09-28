@@ -72,3 +72,13 @@ test("le super-administrateur hérite des droits administrateur, pas l'inverse",
   assert.ok(!hasRole('manager', ['admin']));
   assert.ok(hasRole('manager', ['admin', 'manager']));
 });
+
+test('mots de passe : hachages existants ($2a$, $2y$) et vérifications simultanées', async () => {
+  const { hashPassword, verifyPassword } = require('../src/utils/password');
+  const hash = await hashPassword('Secret2026abc');
+  assert.match(hash, /^\$2[ab]\$12\$/);
+  assert.ok(await verifyPassword('Secret2026abc', hash.replace(/^\$2[ab]\$/, '$2y$')));
+  const results = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+    verifyPassword(i % 2 ? 'Secret2026abc' : 'mauvais', hash)));
+  assert.deepStrictEqual(results, results.map((_, i) => i % 2 === 1));
+});

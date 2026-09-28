@@ -68,8 +68,8 @@ const GenerateForm = ({ onDone }: { onDone: (key: string) => void }) => {
   const [form, setForm] = useState({
     organisation:    '',
     contact:         '',
-    max_utilisateurs: '20',
-    max_connexions:  '10',
+    max_utilisateurs: '500',
+    max_connexions:  '500',
     date_expiration: '',
     notes:           '',
   });
@@ -110,12 +110,12 @@ const GenerateForm = ({ onDone }: { onDone: (key: string) => void }) => {
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Max utilisateurs</label>
-          <input type="number" min="1" max="500" value={form.max_utilisateurs}
+          <input type="number" min="1" max="5000" value={form.max_utilisateurs}
             onChange={e => set('max_utilisateurs', e.target.value)} className="input" />
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Max connexions simultanées</label>
-          <input type="number" min="1" max="100" value={form.max_connexions}
+          <input type="number" min="1" max="5000" value={form.max_connexions}
             onChange={e => set('max_connexions', e.target.value)} className="input" />
         </div>
         <div className="sm:col-span-2">

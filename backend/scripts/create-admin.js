@@ -5,7 +5,7 @@
  * Usage : npm run create-admin -- <email> <Nom> <Prénom> [--superadmin]
  */
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../src/utils/password');
 const { pool } = require('../src/config/database');
 
 (async () => {
@@ -20,7 +20,7 @@ const { pool } = require('../src/config/database');
   try {
     // 16 caractères aléatoires + un chiffre garanti (politique de mot de passe)
     const password = crypto.randomBytes(12).toString('base64url') + '7';
-    const hash = await bcrypt.hash(password, 12);
+    const hash = await hashPassword(password);
     const r = await pool.query(
       `INSERT INTO users (nom, prenom, email, password, role, must_change_password)
        VALUES ($1, $2, LOWER($3), $4, $5, true)

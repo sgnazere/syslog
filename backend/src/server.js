@@ -87,7 +87,8 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(env.port, async () => {
+  // File d'attente des connexions entrantes élargie pour les pics de trafic (défaut Node : 511)
+  app.listen({ port: env.port, backlog: 2048 }, async () => {
     console.log(`🚀 Serveur démarré sur le port ${env.port}`);
     try {
       await query('SELECT 1');

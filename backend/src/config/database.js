@@ -11,9 +11,9 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'eclog',
   user:     process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  max: 20,
+  max: parseInt(process.env.DB_POOL_MAX || '30', 10),
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 15000,
 });
 
 pool.on('error', (err) => {

@@ -28,7 +28,7 @@ const invalidateCache = () => { _cache = null; _cacheTime = 0; };
 
 const getUsageStats = async () => {
   const [users, sessions] = await Promise.all([
-    query(`SELECT COUNT(*) AS total FROM users WHERE is_active = true`),
+    query(`SELECT COUNT(*) AS total FROM users WHERE is_active = true AND role != 'superadmin'`),
     query(`SELECT COUNT(DISTINCT user_id) AS total FROM sessions_actives WHERE expires_at > NOW()`),
   ]);
   return {
@@ -67,7 +67,7 @@ const generate = async (req, res, next) => {
   try {
     const {
       organisation, contact,
-      max_utilisateurs = 10, max_connexions = 5,
+      max_utilisateurs = 500, max_connexions = 500,
       date_expiration, modules = 'all', notes,
     } = req.body;
 

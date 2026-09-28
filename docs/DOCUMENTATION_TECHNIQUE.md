@@ -83,7 +83,7 @@ Principes :
 | Couche | Technologies |
 |---|---|
 | Runtime | Node.js ≥ 18 (CI en Node 20) |
-| Backend | Express 4, pg 8, jsonwebtoken 9, bcryptjs 2, express-validator 7, express-rate-limit 7, helmet 7, cors, morgan, axios, marked + html-to-docx (export Word de la documentation), dotenv |
+| Backend | Express 4, pg 8, jsonwebtoken 9, bcrypt 6 (natif), express-validator 7, express-rate-limit 7, helmet 7, cors, morgan, axios, marked + html-to-docx (export Word de la documentation), dotenv |
 | Frontend | React 18, TypeScript 5 (`strict`), Vite 6, React Router 6, TanStack Query 5, Axios, Tailwind CSS 3, Recharts, react-hot-toast, SheetJS 0.20.3 (distribution officielle) |
 | Base | PostgreSQL ≥ 14 (18 en développement) |
 | Tests / CI | `node:test` (sans dépendance), GitHub Actions |
@@ -174,6 +174,8 @@ Fichier `backend/.env`, chargé et validé par `src/config/env.js`. **En product
 | `NODE_ENV` | oui en prod | — | `production` : validation stricte, erreurs 500 génériques, logs `combined` |
 | `FRONTEND_URL` | recommandé | `http://localhost:5173` | Origine CORS autorisée |
 | `TRUST_PROXY` | non | `1` en production, `0` sinon | Nombre de reverse proxys devant l'API (adresse IP réelle des clients) |
+| `DB_POOL_MAX` | non | `30` | Connexions PostgreSQL simultanées de l'API (garder sous `max_connections` du serveur, 100 par défaut) |
+| `UV_THREADPOOL_SIZE` | recommandé en production | `4` (Node) | Threads de calcul (hachage des mots de passe). **À définir dans l'environnement du processus avant son démarrage** (PM2, service) — sans effet dans `.env`. Valeur conseillée : nombre de cœurs du serveur |
 | `WA_ENABLED` | non | `false` | Active l'envoi WhatsApp (`WA_TOKEN` et `WA_PHONE_ID` deviennent obligatoires) |
 | `WA_PHONE_ID` / `WA_TOKEN` | si WhatsApp | — | Identifiant du numéro et jeton d'accès Meta |
 | `WA_VERIFY_TOKEN` | si webhook | — | Jeton de vérification du webhook |
@@ -189,6 +191,7 @@ Le frontend n'a aucune variable : il appelle l'API en relatif (`/api`) ; en dév
 | backend | `npm run migrate` | Applique les migrations en attente, chacune dans une transaction, tracées dans `schema_migrations` |
 | backend | `npm run migrate -- --status` | Liste les migrations appliquées (✓) et en attente (·) |
 | backend | `npm run create-admin -- <email> <Nom> <Prénom> [--superadmin]` | Crée un administrateur (ou super-administrateur) avec un mot de passe provisoire aléatoire, affiché une fois, à changer à la première connexion |
+| backend | `npm run reset-password -- <email>` | Réinitialise le mot de passe d'un compte (mot de passe provisoire affiché une fois, changement imposé, sessions fermées) |
 | backend | `npm run set-role -- <email> <superadmin\|admin\|manager\|user>` | Change le rôle d'un compte existant et ferme ses sessions (ex. désigner le premier super-administrateur) |
 | backend | `npm test` | Tests unitaires et HTTP (sans base) |
 | backend | `INTEGRATION=1 npm test` | + scénario d'intégration complet sur la base configurée (données de test supprimées à la fin) |
@@ -232,6 +235,7 @@ Le gestionnaire d'erreurs renvoie :
 | Refus : motif obligatoire, conservé (`motif_refus`) ; libère véhicule et chauffeur si la demande était validée | `requests.controller.reject` |
 | Clôture : `km_retour ≥ km_depart` et ≥ compteur actuel ; compteur mis à jour ; véhicule et chauffeur libérés | `requests.controller.complete` |
 | Maintenance : impossible sur un véhicule en mission ; véhicule `en_maintenance` à la création ; libéré (ou hors service) à la clôture ou à la suppression du dernier dossier ouvert ; dossier `en_cours` non supprimable | `maintenance.controller` |
+| Licence : nombre maximal d'**utilisateurs actifs** (hors super-administrateurs) contrôlé à la création, à la réactivation et au changement de rôle d'un compte ; nombre maximal de **personnes connectées** contrôlé à la connexion (les administrateurs ne sont jamais bloqués) | `users.controller.assertUserQuota`, `auth.controller.login` |
 | Comptes : pas d'auto-désactivation ni d'auto-rétrogradation, toujours ≥ 1 admin (ou superadmin) actif et ≥ 1 superadmin actif ; désactivation, réinitialisation et changement de rôle ferment les sessions | `users.controller` |
 | Seul un `superadmin` attribue ce rôle ou agit sur un compte `superadmin` (création, modification, désactivation, réinitialisation) | `users.controller.assertCanManage` |
 | Émission (`/generate`) et suspension/réactivation (`/:id/status`) des licences réservées au `superadmin` ; l'administrateur consulte, active une clé et gère les sessions | `license.routes` |
@@ -297,7 +301,7 @@ Les gardes de `App.tsx` sont une commodité d'interface : **la sécurité est ap
 | GET | `/api/auth/me` | connecté | Profil courant (dont `employee_id`, `must_change_password`) |
 | PUT | `/api/auth/change-password` | connecté | `{ currentPassword, newPassword }` ; ferme les autres sessions |
 | GET | `/api/license` | admin | Licence courante (clé masquée) + `stats` |
-| POST | `/api/license/generate` | superadmin | `{ organisation, date_expiration, contact?, max_utilisateurs?, max_connexions?, modules?, notes? }` → clé complète (unique affichage) ; active seulement si aucune autre ne l'est |
+| POST | `/api/license/generate` | superadmin | `{ organisation, date_expiration, contact?, max_utilisateurs? = 500, max_connexions? = 500, modules?, notes? }` → clé complète (unique affichage) ; active seulement si aucune autre ne l'est |
 | POST | `/api/license/activate` | admin | `{ cle }` : vérifie la signature, suspend l'ancienne, active la nouvelle (transaction) |
 | PATCH | `/api/license/:id/status` | superadmin | `{ statut: active \| suspendue }` |
 | GET | `/api/license/sessions` | admin | Sessions actives |
@@ -408,7 +412,7 @@ Triggers : `check_employee_duplicate_requests` (une demande non refusée par emp
 
 | Domaine | Mesure |
 |---|---|
-| Mots de passe | bcrypt coût 12 ; 10 caractères minimum avec lettre et chiffre ; changement imposé après création ou réinitialisation par un admin ; temps de réponse homogène pour un e-mail inconnu |
+| Mots de passe | bcrypt natif coût 12, calculé hors du fil principal avec un nombre de calculs simultanés limité ; 10 caractères minimum avec lettre et chiffre ; changement imposé après création ou réinitialisation par un admin ; temps de réponse homogène pour un e-mail inconnu |
 | Sessions | JWT HS256 + session en base obligatoire : révocation immédiate à la déconnexion, désactivation, réinitialisation, changement de rôle ou de mot de passe ; 3 sessions max par utilisateur |
 | Autorisations | Rôle vérifié sur chaque route ; contrôle par objet sur les demandes ; données RH réservées aux admins/managers ; listes de sélection sans données personnelles |
 | Entrées | `express-validator` sur toutes les écritures ; requêtes SQL paramétrées ; corps JSON limité à 1 Mo |
@@ -446,6 +450,22 @@ Voir [§18.3](#183-points-restant-ouverts).
 | `test/unit.test.js` | Héritage des rôles (`hasRole`), masquage des secrets, normalisation des téléphones, formatage des dates, exemptions de licence, signature des clés, traduction des erreurs PostgreSQL |
 | `test/http.test.js` | Authentification sans licence, jetons invalides, validation, JSON invalide, webhook (jeton et signature), 404 |
 | `test/integration.test.js` (`INTEGRATION=1`) | Scénario complet sur base réelle : droits réservés au superadmin, changement de mot de passe imposé, politique de mot de passe, audit sans secret, demande multi-destinations, doublon de date, permis expiré, validations concurrentes, clôture et compteur, machine à états, notifications, périmètre d'un `user`, révocation par désactivation et déconnexion |
+
+### Test de charge (28/09/2026)
+
+Réalisé sur une base dédiée de 500 comptes, 500 employés et 2 000 demandes, chaque utilisateur simulé ayant sa propre adresse IP, API seule (sans Nginx) sur un poste Windows 12 cœurs avec `UV_THREADPOOL_SIZE=12`, requêtes limitées à 100 connexions simultanées vers l'API (rôle joué par Nginx en production).
+
+| Scénario | Résultat |
+|---|---|
+| Licence limitée à 450 personnes connectées, 500 connexions simultanées | 450 acceptées, 50 refusées (message explicite), administrateur toujours accepté |
+| Licence à 500 : 500 connexions dans la même seconde | 500/500 en 13,7 s (médiane 2,6 s par personne) |
+| 500 personnes connectées travaillant en même temps (1 500 requêtes) | 1 500/1 500 en 2,9 s — médiane 110 ms, p95 608 ms |
+| 500 demandes de sortie créées en même temps | 500/500 en 1,7 s — médiane 316 ms |
+| Création du 501e compte actif | Refusée (403 « Limite de la licence atteinte ») |
+| 500 déconnexions simultanées | 500/500, aucune session restante |
+| Erreurs serveur | 0 |
+
+Corrections issues de ce test : remplacement de `bcryptjs` (JavaScript pur, qui bloquait le serveur : 457 échecs sur 500 connexions simultanées) par `bcrypt` natif ; limitation des hachages simultanés pour que l'ouverture des connexions PostgreSQL ne soit jamais bloquée ; pool porté à 30 connexions ; file d'attente TCP portée à 2 048. Le temps de connexion d'un pic de 500 personnes dépend surtout du nombre de cœurs (`UV_THREADPOOL_SIZE`) : environ 4 fois plus long avec la valeur par défaut de 4 threads.
 
 La CI (`.github/workflows/ci.yml`), à chaque push sur `main` et chaque pull request :
 
@@ -486,7 +506,7 @@ npm ci && npm run build                 # produit frontend/dist/
 ```bash
 sudo npm install -g pm2
 cd /var/www/syslog/backend
-pm2 start src/server.js --name syslog-api
+UV_THREADPOOL_SIZE=$(nproc) pm2 start src/server.js --name syslog-api --update-env
 pm2 startup && pm2 save
 pm2 logs syslog-api
 ```
@@ -579,7 +599,8 @@ cd ../frontend && npm ci && npm run build
 | Créer un administrateur | `npm run create-admin -- <email> <Nom> <Prénom>` (ajouter `--superadmin` pour l'éditeur) |
 | Changer le rôle d'un compte | `npm run set-role -- <email> <rôle>` ou écran Accès & Rôles |
 | Mettre à jour les captures du guide | Les captures de `docs/images/` proviennent d'une base de démonstration **fictive** : ne jamais y faire figurer de données réelles |
-| Mot de passe admin perdu (aucun admin accessible) | Créer un nouvel admin avec `create-admin`, puis réinitialiser l'ancien compte depuis l'écran Comptes |
+| Modifier les limites de la licence | Super-administrateur : générer une nouvelle licence (500 utilisateurs et 500 connexions par défaut) puis l'activer |
+| Mot de passe perdu (y compris pour tous les admins) | Sur le serveur : `npm run reset-password -- <email>` affiche un mot de passe provisoire (à changer à la connexion) |
 | Instance bloquée par la licence | Se connecter en admin (toujours possible) → Licence → activer ou générer une clé |
 | Fermer toutes les sessions d'un utilisateur | Désactiver puis réactiver le compte, ou `DELETE FROM sessions_actives WHERE user_id = <id>;` |
 | Purges périodiques (recommandées) | `DELETE FROM sessions_actives WHERE expires_at < NOW();` · notifications lues de plus de 6 mois · journal d'audit selon la politique de conservation de l'organisation |
