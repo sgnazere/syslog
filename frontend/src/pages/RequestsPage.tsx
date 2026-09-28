@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useRequests, useCreateRequest, useValidateRequest, useRejectRequest, useCompleteRequest } from '../hooks/useRequests';
 import { useVehicles } from '../hooks/useVehicles';
@@ -995,7 +996,13 @@ export const RequestsPage = () => {
   const { user } = useAuth();
   const canManage = hasRole(user?.role, ['admin', 'manager']);
 
-  const [filters,    setFilters]    = useState({ statut: '', from: '', to: '' });
+  // Le filtre de statut peut venir de l'adresse (ex. menu de la cloche : ?statut=en_attente)
+  const [searchParams] = useSearchParams();
+  const [filters,    setFilters]    = useState({ statut: searchParams.get('statut') || '', from: '', to: '' });
+  useEffect(() => {
+    const statut = searchParams.get('statut');
+    if (statut !== null) setFilters(f => ({ ...f, statut }));
+  }, [searchParams]);
   const [showCreate, setShowCreate] = useState(false);
   const [managing,   setManaging]   = useState<RequestGroup | null>(null);
   const [closing,    setClosing]    = useState<RequestGroup | null>(null);

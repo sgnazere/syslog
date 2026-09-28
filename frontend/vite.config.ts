@@ -13,7 +13,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        // Cible de l'API (autre instance possible, ex. démonstration : VITE_API_TARGET=http://localhost:5058)
+        target: process.env.VITE_API_TARGET || 'http://localhost:5000',
         changeOrigin: true,
       },
     },

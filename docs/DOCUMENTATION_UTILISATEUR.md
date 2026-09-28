@@ -90,7 +90,11 @@ Votre session reste ouverte **8 heures**. Elle est fermée plus tôt si vous vou
 ## 5. Se repérer dans l'écran
 
 - **À gauche**, le **menu** : il ne montre que les pages autorisées pour votre rôle. En bas : votre nom, votre rôle, **Changer mon mot de passe** et **Déconnexion** (et **Documentation utilisateur** pour les managers et administrateurs).
-- **En haut**, votre nom, votre rôle et la **cloche 🔔** des notifications (pastille rouge = notifications non lues).
+- **En haut**, votre nom, votre rôle et la **cloche 🔔**, avec un **nombre** en rouge :
+  - pour un **manager** ou un **administrateur** : le nombre d'**actions qui l'attendent** (demandes à valider et missions à clôturer, voir 12) ;
+  - pour un **utilisateur** : le nombre de **notifications non lues**.
+
+  Le nombre diminue au fur et à mesure et disparaît quand il n'y a plus rien à traiter.
 - **Au centre**, la page en cours. La plupart des listes proposent une vue **grille** (⊞) et une vue **liste** (≡), des filtres et des compteurs.
 
 ## 6. Calendrier
@@ -106,7 +110,7 @@ Menu **📅 Calendrier** : vue mensuelle des sorties (hors demandes refusées). 
 
 ## 7. Notifications
 
-La **cloche 🔔** et le menu **Notifications** listent les messages qui vous concernent, les non lus en premier.
+Le menu **Notifications** liste les messages qui vous concernent, les non lus en premier ; le nombre de messages non lus s'affiche à côté du menu (et sur la cloche pour les utilisateurs).
 
 ![Notifications](images/14-utilisateur-notifications.jpg)
 
@@ -188,6 +192,15 @@ Le manager a tous les droits de l'utilisateur. Dans le formulaire de demande, il
 - **Compteurs** : demandes en attente, validées sans véhicule ou chauffeur, sorties du jour et de la semaine.
 - **Regroupements possibles** (encadré jaune) : plusieurs personnes vont dans la même commune le même jour — l'occasion de partager un véhicule. **Voir et traiter →** ouvre les demandes concernées.
 - **Demandes en attente de validation**, **planning de la semaine**, état du **parc véhicules** et des **chauffeurs**, **communes les plus demandées**.
+
+**La cloche 🔔 des actions en attente.** Le nombre en rouge sur la cloche indique ce qui attend une action de votre part :
+
+- les **demandes à valider** (statut « En attente ») ;
+- les **missions à clôturer** : validées, dont la date est arrivée, et pas encore clôturées.
+
+Cliquez sur la cloche pour voir le détail, puis sur une ligne pour ouvrir directement les demandes concernées. Le nombre diminue dès qu'une demande est validée ou refusée, ou qu'une mission est clôturée — y compris par un autre responsable (mise à jour toutes les 30 secondes) — et disparaît quand tout est traité.
+
+![Cloche des actions en attente](images/20b-manager-cloche-actions.jpg)
 
 ## 13. Traiter les demandes : valider
 

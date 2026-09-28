@@ -15,7 +15,9 @@ const { buildUserGuideDocx, DOCS_DIR, DOCX_NAME } = require('../src/services/use
     fs.writeFileSync(out, docx);
     console.log(`Document généré : ${out} (${Math.round(docx.length / 1024)} Ko)`);
   } catch (err) {
-    console.error('❌', err.message);
+    console.error('❌', err.code === 'EBUSY' || err.code === 'EPERM'
+      ? `Le fichier ${DOCX_NAME} est ouvert (Word ?) : fermez-le puis relancez la commande.`
+      : err.message);
     process.exitCode = 1;
   }
 })();

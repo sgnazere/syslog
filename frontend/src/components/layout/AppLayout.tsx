@@ -8,6 +8,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { downloadFile } from '../../lib/api';
 import { ChangePasswordModal } from '../shared/ChangePasswordModal';
+import { NotificationBell } from './NotificationBell';
 
 interface NavItem { path: string; label: string; roles: UserRole[]; icon: string; }
 
@@ -193,15 +194,7 @@ export const AppLayout = () => {
             <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full font-medium">
               {ROLE_LABELS[user.role]}
             </span>
-            <button
-              onClick={() => navigate('/notifications')}
-              className="relative p-2 rounded-lg hover:bg-slate-100 text-lg"
-            >
-              🔔
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-              )}
-            </button>
+            <NotificationBell canAct={hasRole(user.role, ['admin', 'manager'])} unreadCount={unreadCount} />
           </div>
         </header>
         {/* Bannière d'avertissement licence */}

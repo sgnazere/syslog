@@ -84,6 +84,21 @@ const getAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+/**
+ * GET /api/requests/pending-actions — actions attendues d'un manager ou administrateur :
+ * demandes à valider, et missions validées dont la date est arrivée, à clôturer.
+ */
+const pendingActions = async (req, res, next) => {
+  try {
+    const r = await query(`
+      SELECT COUNT(*) FILTER (WHERE statut = 'en_attente')::int AS a_valider,
+             COUNT(*) FILTER (WHERE statut = 'validee' AND date_deplacement <= CURRENT_DATE)::int AS a_cloturer
+      FROM demande_deplacement`);
+    const { a_valider, a_cloturer } = r.rows[0];
+    res.json({ data: { a_valider, a_cloturer, total: a_valider + a_cloturer } });
+  } catch (err) { next(err); }
+};
+
 /** GET /api/requests/:id */
 const getById = async (req, res, next) => {
   try {
@@ -380,4 +395,4 @@ const complete = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getById, create, validate, reject, complete };
+module.exports = { getAll, getById, pendingActions, create, validate, reject, complete };

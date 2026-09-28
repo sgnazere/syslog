@@ -18,6 +18,7 @@ const normalizeCommunes = (req, res, next) => {
 };
 
 router.get('/',    authenticate, c.getAll);
+router.get('/pending-actions', ...managers, c.pendingActions); // avant /:id
 router.get('/:id', authenticate, idParam, validate, c.getById);
 
 router.post('/', authenticate, normalizeCommunes,

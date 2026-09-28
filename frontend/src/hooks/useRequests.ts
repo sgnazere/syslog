@@ -21,12 +21,23 @@ export const useRequests = (params?: RequestsParams) => {
   });
 };
 
+export interface PendingActions { a_valider: number; a_cloturer: number; total: number; }
+
+/** Actions attendues d'un manager / administrateur (demandes à valider, missions à clôturer). */
+export const usePendingActions = (enabled: boolean) => useQuery({
+  queryKey: ['pending-actions'],
+  queryFn:  () => api.get<{ data: PendingActions }>('/requests/pending-actions').then(r => r.data.data),
+  enabled,
+  refetchInterval: 30_000,          // prend en compte les actions des autres responsables
+  refetchOnWindowFocus: true,
+});
+
 export const useCreateRequest = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => api.post('/requests', data),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['requests'] });
+      qc.invalidateQueries({ queryKey: ['requests'] }); qc.invalidateQueries({ queryKey: ['pending-actions'] });
       const suggestions = res.data?.groupingSuggestions || [];
       if (suggestions.length > 0) {
         toast.success(`Demande créée. ${suggestions.length} autre(s) demande(s) pour la même commune détectée(s).`, { duration: 6000 });
@@ -43,7 +54,7 @@ export const useValidateRequest = () => {
   return useMutation({
     mutationFn: ({ id, vehicule_id, chauffeur_id }: { id: number; vehicule_id?: number; chauffeur_id?: number }) =>
       api.patch(`/requests/${id}/validate`, { vehicule_id, chauffeur_id }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['requests'] }); toast.success('Demande validée.'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['requests'] }); qc.invalidateQueries({ queryKey: ['pending-actions'] }); toast.success('Demande validée.'); },
     onError: (err: any) => toast.error(err?.response?.data?.error || 'Erreur.'),
   });
 };
@@ -53,7 +64,7 @@ export const useRejectRequest = () => {
   return useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       api.patch(`/requests/${id}/reject`, { reason }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['requests'] }); toast.success('Demande refusée.'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['requests'] }); qc.invalidateQueries({ queryKey: ['pending-actions'] }); toast.success('Demande refusée.'); },
     onError: (err: any) => toast.error(err?.response?.data?.error || 'Erreur.'),
   });
 };
@@ -65,7 +76,7 @@ export const useCompleteRequest = () => {
       id: number; km_depart?: number; km_retour?: number;
     }) => api.patch(`/requests/${id}/complete`, { km_depart, km_retour }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['requests'] });
+      qc.invalidateQueries({ queryKey: ['requests'] }); qc.invalidateQueries({ queryKey: ['pending-actions'] });
       qc.invalidateQueries({ queryKey: ['vehicles'] });
       qc.invalidateQueries({ queryKey: ['drivers'] });
       const dist = res.data?.distance;

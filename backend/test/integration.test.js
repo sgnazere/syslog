@@ -106,6 +106,12 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
       assert.strictEqual(r.status, 409);
     });
 
+    await t.test('compteur des actions en attente de la cloche', async () => {
+      const before = (await call('GET', '/requests/pending-actions', admin)).data.data;
+      assert.ok(before.a_valider >= 1);
+      assert.strictEqual(before.total, before.a_valider + before.a_cloturer);
+    });
+
     await t.test('validation : permis expiré refusé, validations concurrentes sérialisées', async () => {
       assert.strictEqual((await call('PATCH', `/requests/${dem}/validate`, admin, { vehicule_id: veh, chauffeur_id: drvExpire })).status, 409);
       const both = await Promise.all([
@@ -113,6 +119,10 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
         call('PATCH', `/requests/${dem}/validate`, admin, { vehicule_id: veh, chauffeur_id: drv }),
       ]);
       assert.deepStrictEqual(both.map(x => x.status).sort(), [200, 409]);
+      // la validation retire la demande des actions « à valider »
+      const after = (await call('GET', '/requests/pending-actions', admin)).data.data;
+      const pendingAfter = (await pool.query(`SELECT count(*)::int n FROM demande_deplacement WHERE statut = 'en_attente'`)).rows[0].n;
+      assert.strictEqual(after.a_valider, pendingAfter);
       assert.strictEqual((await call('POST', '/maintenance', admin, { vehicule_id: veh, type_maintenance: 'Vidange', date_debut: date })).status, 409);
     });
 
@@ -135,6 +145,7 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
       r = await call('GET', '/requests', user);
       assert.ok(r.data.data.every(d => d.employe_id === emp2 || d.passagers.some(p => p.id === emp2)));
       assert.strictEqual((await call('GET', '/employees', user)).status, 403);
+      assert.strictEqual((await call('GET', '/requests/pending-actions', user)).status, 403);
       r = await call('POST', '/requests', user, { employe_id: emp1, commune_ids: [communes[0]], date_deplacement: futureDate(12), heure_depart: '08:00', heure_retour: '12:00', objectif: 'Pour moi' });
       assert.strictEqual(r.status, 201);
       ids.demandes.push(r.data.data.id);
