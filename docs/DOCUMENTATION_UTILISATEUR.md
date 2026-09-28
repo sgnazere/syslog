@@ -10,50 +10,14 @@ Ce guide de formation s'adresse à toutes les personnes qui utilisent SysLog. Il
 
 ## Sommaire
 
-**Partie 1 — Pour tous**
-1. Présentation
-2. Les rôles
-3. Se connecter
-4. Première connexion et mot de passe
-5. Se repérer dans l'écran
-6. Calendrier
-7. Notifications
-8. Se déconnecter
-
-**Partie 2 — Utilisateur (agents)**
-9. Mon tableau de bord
-10. Créer une demande de sortie
-11. Suivre mes demandes
-
-**Partie 3 — Manager (logistique)**
-12. Tableau de bord logistique
-13. Traiter les demandes : valider
-14. Refuser une demande
-15. Clôturer une mission
-16. Véhicules
-17. Chauffeurs
-18. Maintenance
-19. Employés (consultation)
-20. Rapports
-
-**Partie 4 — Administrateur**
-21. Comptes et rôles
-22. Jours fériés
-23. Journal d'audit
-24. Licence
-25. WhatsApp
-
-**Partie 5 — Super-administrateur**
-26. Émettre et gérer les licences
-27. Comptes super-administrateur
-
-**Partie 6 — Références**
-28. Utiliser SysLog sur téléphone
-29. Messages d'erreur et solutions
-30. Questions fréquentes
-31. Bonnes pratiques
-32. Glossaire
-33. Support
+| Partie | Sections |
+|---|---|
+| **1 — Pour tous** | 1. Présentation · 2. Les rôles · 3. Se connecter · 4. Première connexion et mot de passe · 5. Se repérer dans l'écran · 6. Calendrier · 7. Notifications · 8. Se déconnecter |
+| **2 — Utilisateur (agents)** | 9. Mon tableau de bord · 10. Créer une demande de sortie · 11. Suivre mes demandes |
+| **3 — Manager (logistique)** | 12. Tableau de bord logistique · 13. Traiter les demandes : valider · 14. Refuser une demande · 15. Clôturer une mission · 16. Véhicules · 17. Chauffeurs · 18. Maintenance · 19. Employés (consultation) · 20. Rapports |
+| **4 — Administrateur** | 21. Comptes et rôles · 22. Jours fériés · 23. Journal d'audit · 24. Licence · 25. WhatsApp |
+| **5 — Super-administrateur** | 26. Émettre et gérer les licences · 27. Comptes super-administrateur |
+| **6 — Références** | 28. Utiliser SysLog sur téléphone · 29. Messages d'erreur et solutions · 30. Questions fréquentes · 31. Bonnes pratiques · 32. Glossaire · 33. Support |
 
 ---
 
@@ -431,9 +395,9 @@ Dans **🔐 Accès & Rôles**, seul un super-administrateur peut attribuer le r�
 
 L'affichage s'adapte aux petits écrans. Le menu est replié : touchez **☰** en haut à gauche pour l'ouvrir, puis choisissez une page.
 
-| Page Demandes | Menu ouvert |
-|---|---|
-| ![Demandes sur téléphone](images/50-mobile-demandes.jpg) | ![Menu sur téléphone](images/51-mobile-menu.jpg) |
+![Demandes sur téléphone](images/50-mobile-demandes.jpg) ![Menu sur téléphone](images/51-mobile-menu.jpg)
+
+*À gauche : la page Demandes de sortie ; à droite : le menu ouvert avec ☰.*
 
 ## 29. Messages d'erreur et solutions
 

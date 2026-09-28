@@ -97,6 +97,7 @@ Syslog/
 ├── docs/
 │   ├── DOCUMENTATION_UTILISATEUR.md guide de formation par rôle (aussi exporté en .docx par l'API)
 │   ├── images/                      captures d'écran du guide (données fictives)
+│   ├── SysLog_Documentation_Utilisateur.docx  guide au format Word (npm run docs:word)
 │   └── DOCUMENTATION_TECHNIQUE.md   ce document
 ├── backend/
 │   ├── .env.example                 variables de développement
@@ -191,6 +192,7 @@ Le frontend n'a aucune variable : il appelle l'API en relatif (`/api`) ; en dév
 | backend | `npm run migrate` | Applique les migrations en attente, chacune dans une transaction, tracées dans `schema_migrations` |
 | backend | `npm run migrate -- --status` | Liste les migrations appliquées (✓) et en attente (·) |
 | backend | `npm run create-admin -- <email> <Nom> <Prénom> [--superadmin]` | Crée un administrateur (ou super-administrateur) avec un mot de passe provisoire aléatoire, affiché une fois, à changer à la première connexion |
+| backend | `npm run docs:word` | Régénère `docs/SysLog_Documentation_Utilisateur.docx` (page de garde, captures, légendes) après toute modification du guide ou des captures |
 | backend | `npm run reset-password -- <email>` ou `-- --all` | Réinitialise le mot de passe d'un compte, ou de tous les comptes (mots de passe provisoires affichés une fois, changement imposé, sessions fermées). Les mots de passe étant hachés (bcrypt, irréversible), c'est le seul moyen de rendre l'accès à un compte |
 | backend | `npm run set-role -- <email> <superadmin\|admin\|manager\|user>` | Change le rôle d'un compte existant et ferme ses sessions (ex. désigner le premier super-administrateur) |
 | backend | `npm test` | Tests unitaires et HTTP (sans base) |

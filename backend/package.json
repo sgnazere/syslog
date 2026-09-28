@@ -10,7 +10,8 @@
     "create-admin": "node scripts/create-admin.js",
     "test": "node --test",
     "set-role": "node scripts/set-role.js",
-    "reset-password": "node scripts/reset-password.js"
+    "reset-password": "node scripts/reset-password.js",
+    "docs:word": "node scripts/docs-word.js"
   },
   "dependencies": {
     "axios": "^1.18.1",
