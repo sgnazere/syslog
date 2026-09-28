@@ -191,7 +191,7 @@ Le frontend n'a aucune variable : il appelle l'API en relatif (`/api`) ; en dév
 | backend | `npm run migrate` | Applique les migrations en attente, chacune dans une transaction, tracées dans `schema_migrations` |
 | backend | `npm run migrate -- --status` | Liste les migrations appliquées (✓) et en attente (·) |
 | backend | `npm run create-admin -- <email> <Nom> <Prénom> [--superadmin]` | Crée un administrateur (ou super-administrateur) avec un mot de passe provisoire aléatoire, affiché une fois, à changer à la première connexion |
-| backend | `npm run reset-password -- <email>` | Réinitialise le mot de passe d'un compte (mot de passe provisoire affiché une fois, changement imposé, sessions fermées) |
+| backend | `npm run reset-password -- <email>` ou `-- --all` | Réinitialise le mot de passe d'un compte, ou de tous les comptes (mots de passe provisoires affichés une fois, changement imposé, sessions fermées). Les mots de passe étant hachés (bcrypt, irréversible), c'est le seul moyen de rendre l'accès à un compte |
 | backend | `npm run set-role -- <email> <superadmin\|admin\|manager\|user>` | Change le rôle d'un compte existant et ferme ses sessions (ex. désigner le premier super-administrateur) |
 | backend | `npm test` | Tests unitaires et HTTP (sans base) |
 | backend | `INTEGRATION=1 npm test` | + scénario d'intégration complet sur la base configurée (données de test supprimées à la fin) |
@@ -600,7 +600,7 @@ cd ../frontend && npm ci && npm run build
 | Changer le rôle d'un compte | `npm run set-role -- <email> <rôle>` ou écran Accès & Rôles |
 | Mettre à jour les captures du guide | Les captures de `docs/images/` proviennent d'une base de démonstration **fictive** : ne jamais y faire figurer de données réelles |
 | Modifier les limites de la licence | Super-administrateur : générer une nouvelle licence (500 utilisateurs et 500 connexions par défaut) puis l'activer |
-| Mot de passe perdu (y compris pour tous les admins) | Sur le serveur : `npm run reset-password -- <email>` affiche un mot de passe provisoire (à changer à la connexion) |
+| Mot de passe perdu (y compris pour tous les admins) | Sur le serveur : `npm run reset-password -- <email>` (ou `-- --all` pour tous les comptes) affiche un mot de passe provisoire à changer à la connexion ; un admin peut aussi utiliser 🔑 MDP dans Accès & Rôles |
 | Instance bloquée par la licence | Se connecter en admin (toujours possible) → Licence → activer ou générer une clé |
 | Fermer toutes les sessions d'un utilisateur | Désactiver puis réactiver le compte, ou `DELETE FROM sessions_actives WHERE user_id = <id>;` |
 | Purges périodiques (recommandées) | `DELETE FROM sessions_actives WHERE expires_at < NOW();` · notifications lues de plus de 6 mois · journal d'audit selon la politique de conservation de l'organisation |
