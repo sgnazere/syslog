@@ -9,6 +9,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Toujours le port 5173 : si déjà occupé, Vite s'arrête au lieu d'en prendre un autre
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
