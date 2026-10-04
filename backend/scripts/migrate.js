@@ -8,7 +8,18 @@
  */
 const fs   = require('fs');
 const path = require('path');
-const { pool } = require('../src/config/database');
+require('../src/config/env');
+const { Pool } = require('pg');
+
+// Les migrations créent et modifient des tables : elles utilisent le compte propriétaire
+// (DB_MIGRATION_USER), distinct du compte applicatif aux droits limités (DB_USER).
+const pool = new Pool({
+  host:     process.env.DB_HOST || 'localhost',
+  port:     parseInt(process.env.DB_PORT || '5432', 10),
+  database: process.env.DB_NAME || 'eclog',
+  user:     process.env.DB_MIGRATION_USER || process.env.DB_USER,
+  password: process.env.DB_MIGRATION_PASSWORD || process.env.DB_PASSWORD,
+});
 
 const DIR = path.join(__dirname, '..', 'migrations');
 

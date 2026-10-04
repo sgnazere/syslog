@@ -4,9 +4,13 @@ const cors     = require('cors');
 const helmet   = require('helmet');
 const morgan   = require('morgan');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const { query } = require('./config/database');
 const { fromPgError } = require('./utils/httpError');
 const { checkLicense } = require('./middlewares/license.middleware');
+const { originChecker } = require('./utils/origins');
+
+const isAllowedOrigin = originChecker(env.frontendUrls);
 
 const app = express();
 
@@ -15,7 +19,13 @@ app.set('trust proxy', env.trustProxy);
 
 // ── Sécurité ──────────────────────────────────────────────────
 app.use(helmet());
-app.use(cors({ origin: env.frontendUrl, credentials: true }));
+// Fonctionnalités du navigateur inutiles à l'application : désactivées
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  next();
+});
+// CORS : seules les adresses de l'application sont autorisées (jamais de réflexion de l'Origin)
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), credentials: true }));
 
 // ── Parsers (le corps brut est conservé pour vérifier la signature du webhook Meta) ──
 app.use(express.json({ limit: '1mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
@@ -39,6 +49,22 @@ app.use('/api/auth/login', rateLimit({
   keyGenerator: (req) => `${req.ip}|${String(req.body?.email || '').toLowerCase()}`,
   message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
 }));
+
+app.use(cookieParser());
+
+// ── Protection CSRF (la session est un cookie) ────────────────
+// Toute requête qui modifie des données doit venir de l'application elle-même.
+// Les navigateurs envoient toujours Origin / Sec-Fetch-Site sur ces requêtes ;
+// leur absence correspond à un client non navigateur (script, test), non concerné par le CSRF.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+app.use('/api', (req, res, next) => {
+  if (SAFE_METHODS.has(req.method)) return next();
+  const origin = req.get('origin');
+  const site   = req.get('sec-fetch-site');
+  const crossSite = origin ? !isAllowedOrigin(origin) : site === 'cross-site';
+  if (crossSite) return res.status(403).json({ error: 'Origine de la requête refusée.' });
+  next();
+});
 
 // ── Webhooks publics (hors licence) ───────────────────────────
 app.use('/webhooks', require('./routes/webhooks.routes'));
@@ -83,7 +109,8 @@ app.use((err, req, res, next) => {
   if (mapped) return res.status(mapped.status).json({ error: mapped.message, ...(mapped.code && { code: mapped.code }) });
 
   console.error(err.stack || err);
-  res.status(500).json({ error: env.isProduction ? 'Erreur serveur interne.' : err.message });
+  // Détail technique uniquement en développement explicite (jamais si NODE_ENV est absent)
+  res.status(500).json({ error: process.env.NODE_ENV === 'development' ? err.message : 'Erreur serveur interne.' });
 });
 
 if (require.main === module) {
@@ -91,8 +118,16 @@ if (require.main === module) {
   app.listen({ port: env.port, backlog: 2048 }, async () => {
     console.log(`🚀 Serveur démarré sur le port ${env.port}`);
     try {
-      await query('SELECT 1');
-      console.log('✅ PostgreSQL connecté');
+      const { rows: [role] } = await query('SELECT current_user AS nom, rolsuper FROM pg_roles WHERE rolname = current_user');
+      console.log(`✅ PostgreSQL connecté (compte ${role.nom})`);
+      // Le compte applicatif ne doit jamais être superutilisateur (voir DB_MIGRATION_USER pour les migrations)
+      if (role.rolsuper) {
+        if (env.isProduction) {
+          console.error("❌ Le compte PostgreSQL de l'application ne doit pas être superutilisateur.");
+          process.exit(1);
+        }
+        console.warn('⚠️  Compte PostgreSQL superutilisateur (toléré hors production)');
+      }
     } catch (err) {
       console.error('❌ PostgreSQL connexion échouée:', err.message);
     }

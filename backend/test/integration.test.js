@@ -19,15 +19,23 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
 
   const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api`;
-  const call = async (method, path, token, body) => {
+  // Comme un navigateur : la session circule dans le cookie sl_session, et l'origine
+  // de l'application accompagne chaque requête
+  const ORIGIN = 'http://localhost:5173';
+  const call = async (method, path, session, body, origin = ORIGIN) => {
     const res = await fetch(base + path, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(origin && { Origin: origin }),
+        ...(session && { Cookie: session }),
+      },
       body: body && JSON.stringify(body),
     });
     let data = null;
     try { data = await res.json(); } catch { /* corps vide */ }
-    return { status: res.status, data };
+    const setCookie = res.headers.get('set-cookie') || '';
+    return { status: res.status, data, setCookie, session: setCookie.split(';')[0] || null };
   };
   const futureDate = (d) => { const x = new Date(); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -57,7 +65,12 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
       assert.strictEqual(r.status, 401);
       r = await call('POST', '/auth/login', null, { email: 'Integration.Admin@syslog.test', password: 'Provisoire2026x' });
       assert.strictEqual(r.status, 200);
-      admin = r.data.token;
+      // Le jeton n'est jamais exposé au JavaScript de la page : uniquement un cookie HttpOnly
+      assert.ok(!('token' in r.data));
+      assert.match(r.setCookie, /^sl_session=/);
+      assert.match(r.setCookie, /HttpOnly/i);
+      assert.match(r.setCookie, /SameSite=Strict/i);
+      admin = r.session;
       assert.strictEqual((await call('GET', '/requests', admin)).data.code, 'PASSWORD_CHANGE_REQUIRED');
       assert.strictEqual((await call('PUT', '/auth/change-password', admin, { currentPassword: 'Provisoire2026x', newPassword: 'court' })).status, 422);
       assert.strictEqual((await call('PUT', '/auth/change-password', admin, { currentPassword: 'Provisoire2026x', newPassword: 'NouveauMotDePasse2026' })).status, 200);
@@ -140,7 +153,7 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
 
     await t.test('utilisateur simple : accès limité à ses demandes', async () => {
       r = await call('POST', '/auth/login', null, { email: 'integration.user@syslog.test', password: 'Provisoire2026y' });
-      const user = r.data.token;
+      const user = r.session;
       await call('PUT', '/auth/change-password', user, { currentPassword: 'Provisoire2026y', newPassword: 'UtilisateurTest2026' });
       r = await call('GET', '/requests', user);
       assert.ok(r.data.data.every(d => d.employe_id === emp2 || d.passagers.some(p => p.id === emp2)));
@@ -154,6 +167,13 @@ test('scénario complet : demande multi-destinations, affectation, clôture, con
       // Révocation immédiate à la désactivation du compte
       assert.strictEqual((await call('PATCH', `/users/${userId}/toggle-active`, admin)).status, 200);
       assert.strictEqual((await call('GET', '/requests', user)).status, 401);
+    });
+
+    await t.test("anti-CSRF : une modification venant d'un autre site est refusée", async () => {
+      r = await call('PATCH', '/notifications/read-all', admin, null, 'https://attaquant.example');
+      assert.strictEqual(r.status, 403);
+      r = await call('PATCH', '/notifications/read-all', admin);   // origine de l'application
+      assert.strictEqual(r.status, 200);
     });
 
     await t.test('la déconnexion révoque le jeton', async () => {

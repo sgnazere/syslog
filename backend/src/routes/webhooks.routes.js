@@ -22,8 +22,11 @@ router.get('/whatsapp', (req, res) => {
   const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (whatsapp.verifyToken && mode === 'subscribe' && token === whatsapp.verifyToken) {
-    return res.status(200).send(String(challenge));
+  // Meta envoie un challenge numérique : tout autre contenu est refusé et la réponse est
+  // en texte brut (jamais interprétée comme HTML par le navigateur)
+  if (whatsapp.verifyToken && mode === 'subscribe' && token === whatsapp.verifyToken
+      && /^\d{1,64}$/.test(String(challenge))) {
+    return res.status(200).type('text/plain').send(String(challenge));
   }
   res.status(403).json({ error: 'Token de vérification invalide.' });
 });

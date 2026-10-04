@@ -2,7 +2,7 @@ const { hashPassword, verifyPassword } = require('../utils/password');
 const jwt    = require('jsonwebtoken');
 const { query, withTransaction } = require('../config/database');
 const { jwtSecret, jwtExpiresIn } = require('../config/env');
-const { hashToken, clearSessionCache } = require('../middlewares/auth.middleware');
+const { hashToken, clearSessionCache, SESSION_COOKIE, sessionCookieOptions } = require('../middlewares/auth.middleware');
 const { getLicenseFromDB } = require('./license.controller');
 
 // Nombre maximal de sessions ouvertes par un même utilisateur (les plus anciennes sont fermées)
@@ -77,7 +77,9 @@ const login = async (req, res, next) => {
     });
     clearSessionCache();
 
-    res.json({ token, user: publicUser(user) });
+    // Le jeton n'est transmis que dans un cookie HttpOnly : aucun script de la page ne peut le lire
+    res.cookie(SESSION_COOKIE, token, sessionCookieOptions(exp * 1000 - Date.now()));
+    res.json({ user: publicUser(user) });
   } catch (err) { next(err); }
 };
 
@@ -86,6 +88,7 @@ const logout = async (req, res, next) => {
   try {
     await query(`DELETE FROM sessions_actives WHERE token_hash = $1`, [req.tokenHash]);
     clearSessionCache();
+    res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
     res.json({ message: 'Déconnecté.' });
   } catch (err) { next(err); }
 };

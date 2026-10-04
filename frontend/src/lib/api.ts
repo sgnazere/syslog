@@ -1,27 +1,24 @@
 import axios, { AxiosError } from 'axios';
 
+// La session est un cookie HttpOnly envoyé automatiquement par le navigateur (même origine)
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
+  withCredentials: true,
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('sl_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+// Adresses qui répondent 401 sans que cela signifie « session expirée »
+const NO_REDIRECT = ['/auth/login', '/auth/me'];
 
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
-    // Session expirée ou révoquée : retour à la connexion
-    // (sauf pour la tentative de connexion elle-même, dont l'erreur est affichée dans le formulaire)
-    const isLogin = err.config?.url?.includes('/auth/login');
-    if (err.response?.status === 401 && !isLogin) {
-      localStorage.removeItem('sl_token');
-      localStorage.removeItem('sl_user');
-      if (window.location.pathname !== '/login') window.location.href = '/login';
+    // Session expirée ou révoquée : retour à la page de connexion
+    const url = err.config?.url || '';
+    if (err.response?.status === 401 && !NO_REDIRECT.some(p => url.includes(p))
+        && window.location.pathname !== '/login') {
+      window.location.href = '/login';
     }
     return Promise.reject(err);
   }

@@ -1,4 +1,5 @@
 const { hashPassword } = require('../utils/password');
+const { escapeLike } = require('../utils/sql');
 const { query, withTransaction } = require('../config/database');
 const { clearSessionCache } = require('../middlewares/auth.middleware');
 const { HttpError } = require('../utils/httpError');
@@ -80,7 +81,7 @@ const getAll = async (req, res, next) => {
       sql += ` AND u.is_active = $${params.length}`;
     }
     if (search) {
-      params.push(`%${search}%`);
+      params.push(`%${escapeLike(search)}%`);
       const n = params.length;
       sql += ` AND (u.nom ILIKE $${n} OR u.prenom ILIKE $${n} OR u.email ILIKE $${n} OR e.poste ILIKE $${n} OR e.projet ILIKE $${n})`;
     }

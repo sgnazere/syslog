@@ -60,3 +60,41 @@ test('route inconnue hors /api : 404', async () => {
   const res = await fetch(`${base}/inexistant`);
   assert.strictEqual(res.status, 404);
 });
+
+test('en-têtes de sécurité de l\'API, dont Permissions-Policy', async () => {
+  const res = await fetch(`${base}/health`);
+  assert.match(res.headers.get('permissions-policy') || '', /camera=\(\)/);
+  assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.ok(res.headers.get('content-security-policy'));
+  assert.strictEqual(res.headers.get('x-powered-by'), null);
+});
+
+test('webhook : challenge non numérique refusé, réponse en texte brut', async () => {
+  const xss = await fetch(`${base}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=verify-test&hub.challenge=${encodeURIComponent('<script>alert(1)</script>')}`);
+  assert.strictEqual(xss.status, 403);
+  const ok = await fetch(`${base}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=verify-test&hub.challenge=123456`);
+  assert.strictEqual(ok.status, 200);
+  assert.match(ok.headers.get('content-type'), /^text\/plain/);
+});
+
+test('anti-CSRF : modification depuis une origine étrangère refusée', async () => {
+  const res = await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://attaquant.example' },
+    body: JSON.stringify({ email: 'a@b.ci', password: 'x' }),
+  });
+  assert.strictEqual(res.status, 403);
+  const site = await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' },
+    body: JSON.stringify({ email: 'a@b.ci', password: 'x' }),
+  });
+  assert.strictEqual(site.status, 403);
+});
+
+test('CORS : aucune autorisation pour une origine étrangère, autorisation pour l\'application', async () => {
+  const foreign = await fetch(`${base}/health`, { headers: { Origin: 'https://attaquant.example' } });
+  assert.strictEqual(foreign.headers.get('access-control-allow-origin'), null);
+  const own = await fetch(`${base}/health`, { headers: { Origin: 'http://localhost:5173' } });
+  assert.strictEqual(own.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+});

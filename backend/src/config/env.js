@@ -4,6 +4,7 @@
  * ou égal à une valeur d'exemple de la documentation.
  */
 require('dotenv').config();
+const { parseOrigins } = require('../utils/origins');
 
 const EXAMPLE_VALUES = [
   'votre_secret_jwt_tres_long_min_32_caracteres',
@@ -46,7 +47,8 @@ module.exports = {
   jwtSecret:      process.env.JWT_SECRET,
   jwtExpiresIn:   process.env.JWT_EXPIRES_IN || '8h',
   licenseSecret:  process.env.LICENSE_SECRET,
-  frontendUrl:    process.env.FRONTEND_URL || 'http://localhost:5173',
+  // Adresses de l'application (une ou plusieurs, séparées par des virgules ; voir utils/origins.js)
+  frontendUrls:   parseOrigins(process.env.FRONTEND_URL || 'http://localhost:5173'),
   port:           parseInt(process.env.PORT || '5000', 10),
   // Nombre de proxys de confiance devant l'API (1 derrière Nginx)
   trustProxy:     process.env.TRUST_PROXY !== undefined ? parseInt(process.env.TRUST_PROXY, 10) : (isProduction ? 1 : 0),

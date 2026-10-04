@@ -1,7 +1,17 @@
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
-const { jwtSecret } = require('../config/env');
+const { jwtSecret, isProduction } = require('../config/env');
 const { query }     = require('../config/database');
+
+// Cookie de session : HttpOnly (illisible par JavaScript), SameSite=Strict, Secure en production
+const SESSION_COOKIE = 'sl_session';
+const sessionCookieOptions = (maxAgeMs) => ({
+  httpOnly: true,
+  sameSite: 'strict',
+  secure:   isProduction,
+  path:     '/',
+  ...(maxAgeMs !== undefined && { maxAge: maxAgeMs }),
+});
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -45,11 +55,13 @@ const PASSWORD_CHANGE_ALLOWED = ['/api/auth/me', '/api/auth/change-password', '/
  * Le rôle est lu en base : un changement de rôle s'applique sans reconnexion.
  */
 const authenticate = async (req, res, next) => {
+  // Navigateur : cookie HttpOnly. Clients non navigateur (scripts, tests) : en-tête Authorization.
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = req.cookies?.[SESSION_COOKIE]
+    || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null);
+  if (!token) {
     return res.status(401).json({ error: 'Token manquant ou invalide.' });
   }
-  const token = authHeader.slice(7);
   try {
     jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
   } catch {
@@ -99,4 +111,4 @@ const authorize = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, authorize, hasRole, hashToken, clearSessionCache };
+module.exports = { authenticate, authorize, hasRole, hashToken, clearSessionCache, SESSION_COOKIE, sessionCookieOptions };

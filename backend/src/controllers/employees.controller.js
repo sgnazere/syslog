@@ -1,3 +1,4 @@
+const { escapeLike } = require('../utils/sql');
 const { query } = require('../config/database');
 
 const EMPLOYEE_FIELDS = `
@@ -40,7 +41,7 @@ const getAll = async (req, res, next) => {
     if (statut)     { params.push(statut);     where += ` AND e.status = $${params.length}`; }
     if (service_id) { params.push(service_id); where += ` AND e.service_id = $${params.length}`; }
     if (search) {
-      params.push(`%${search}%`);
+      params.push(`%${escapeLike(search)}%`);
       const n = params.length;
       where += ` AND (e.nom ILIKE $${n} OR e.prenoms ILIKE $${n} OR e.email ILIKE $${n} OR e.poste ILIKE $${n})`;
     }

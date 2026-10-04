@@ -63,7 +63,7 @@ flowchart LR
     end
     DB[(PostgreSQL)]
     META[Meta WhatsApp Cloud API]
-    SPA -- "/api + Bearer JWT" --> S
+    SPA -- "/api + cookie de session HttpOnly" --> S
     C --> DB
     N --> DB
     N -- HTTPS --> META
@@ -94,6 +94,7 @@ Principes :
 Syslog/
 ├── README.md
 ├── .github/workflows/ci.yml         intégration continue
+├── deploy/nginx/syslog.conf         configuration Nginx de production (HTTPS, en-têtes de sécurité, relais API)
 ├── docs/
 │   ├── DOCUMENTATION_UTILISATEUR.md guide de formation par rôle (aussi exporté en .docx par l'API)
 │   ├── images/                      captures d'écran du guide (données fictives)
@@ -173,7 +174,8 @@ Fichier `backend/.env`, chargé et validé par `src/config/env.js`. **En product
 | `LICENSE_SECRET` | oui | — | Signature des clés de licence ; le changer invalide les clés existantes |
 | `PORT` | non | `5000` | Port HTTP |
 | `NODE_ENV` | oui en prod | — | `production` : validation stricte, erreurs 500 génériques, logs `combined` |
-| `FRONTEND_URL` | recommandé | `http://localhost:5173` | Origine CORS autorisée |
+| `FRONTEND_URL` | **oui en production** | `http://localhost:5173` | Adresse(s) exacte(s) de l'application, séparées par des virgules (protocole, domaine, port, sans `/` final). Utilisées par CORS **et** par le contrôle anti-CSRF : une adresse absente de la liste ne peut ni se connecter ni modifier de données (403). Joker de sous-domaine possible : `https://*.devtunnels.ms` (tunnels VS Code). Ex. : `https://syslog.espaceconfiance.ci` |
+| `DB_MIGRATION_USER` / `DB_MIGRATION_PASSWORD` | si migrations | `DB_USER` / `DB_PASSWORD` | Compte **propriétaire** des tables, utilisé uniquement par `npm run migrate` (le compte applicatif `DB_USER` n'a que les droits lecture/écriture) |
 | `TRUST_PROXY` | non | `1` en production, `0` sinon | Nombre de reverse proxys devant l'API (adresse IP réelle des clients) |
 | `DB_POOL_MAX` | non | `30` | Connexions PostgreSQL simultanées de l'API (garder sous `max_connections` du serveur, 100 par défaut) |
 | `UV_THREADPOOL_SIZE` | recommandé en production | `4` (Node) | Threads de calcul (hachage des mots de passe). **À définir dans l'environnement du processus avant son démarrage** (PM2, service) — sans effet dans `.env`. Valeur conseillée : nombre de cœurs du serveur |
@@ -269,7 +271,7 @@ Les gardes de `App.tsx` sont une commodité d'interface : **la sécurité est ap
 
 ### 9.2 Session
 
-- `AuthContext` : jeton et utilisateur en `localStorage` (`sl_token`, `sl_user`), revalidés au chargement par `GET /api/auth/me` ; `logout()` appelle `POST /api/auth/logout`.
+- La session est un **cookie `sl_session` `HttpOnly; SameSite=Strict`** (et `Secure` en production) posé par le serveur : aucun jeton n'est stocké ni lisible côté navigateur. `AuthContext` restaure la session au chargement par `GET /api/auth/me` ; `logout()` appelle `POST /api/auth/logout`, qui ferme la session et efface le cookie.
 - `lib/api.ts` : Axios `baseURL: '/api'`, jeton ajouté automatiquement ; toute 401 (hors tentative de connexion) purge la session et renvoie à `/login` ; `downloadFile()` pour les téléchargements authentifiés.
 - `must_change_password` : `AppLayout` n'affiche que `ChangePasswordModal` (mode forcé) tant que le mot de passe n'est pas changé.
 
@@ -287,7 +289,8 @@ Les gardes de `App.tsx` sont une commodité d'interface : **la sécurité est ap
 | Élément | Valeur |
 |---|---|
 | Base | `/api` (JSON), sauf `/health` et `/webhooks` |
-| Authentification | `Authorization: Bearer <JWT>` (obtenu par `POST /api/auth/login`) |
+| Authentification | Navigateur : cookie `sl_session` posé par `POST /api/auth/login` (le jeton n'est jamais dans le corps de la réponse). Scripts et tests : en-tête `Authorization: Bearer <JWT>` accepté |
+| Anti-CSRF | Toute requête POST/PUT/PATCH/DELETE dont l'en-tête `Origin` n'est pas dans `FRONTEND_URL` (ou `Sec-Fetch-Site: cross-site`) est refusée : `403 « Origine de la requête refusée. »` |
 | Succès | `{ "data": …, "message"?: string, "total"?: number }` |
 | Erreur | `{ "error": string, "details"?: [{ "field", "message" }], "code"?: string }` |
 | Codes | 200, 201 · 400 règle · 401 non authentifié / session révoquée · 403 rôle, licence, mot de passe à changer, limite de connexions · 404 · 409 conflit / état incompatible · 413 · 422 validation · 429 · 500 · 502 (échec WhatsApp) · 503 |
@@ -415,11 +418,15 @@ Triggers : `check_employee_duplicate_requests` (une demande non refusée par emp
 | Domaine | Mesure |
 |---|---|
 | Mots de passe | bcrypt natif coût 12, calculé hors du fil principal avec un nombre de calculs simultanés limité ; 10 caractères minimum avec lettre et chiffre ; changement imposé après création ou réinitialisation par un admin ; temps de réponse homogène pour un e-mail inconnu |
-| Sessions | JWT HS256 + session en base obligatoire : révocation immédiate à la déconnexion, désactivation, réinitialisation, changement de rôle ou de mot de passe ; 3 sessions max par utilisateur |
+| Sessions | JWT HS256 transporté dans un cookie `HttpOnly; SameSite=Strict; Secure` (illisible par JavaScript) + session en base obligatoire : révocation immédiate à la déconnexion, désactivation, réinitialisation, changement de rôle ou de mot de passe ; 3 sessions max par utilisateur |
+| CSRF | Contrôle de l'origine sur toutes les écritures (`FRONTEND_URL`) + `SameSite=Strict` ; l'API n'accepte que du JSON |
+| Base de données | Compte applicatif `syslog_app` limité à la lecture/écriture des tables SysLog (ni DDL, ni `COPY … PROGRAM`, ni accès aux autres bases) ; refus de démarrer en production avec un compte superutilisateur ; migrations par un compte propriétaire distinct |
+| En-têtes de la page | CSP stricte (`script-src 'self'`, `frame-ancestors 'none'`), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` — via `deploy/nginx/syslog.conf` en production et `npm run preview` en local |
+| Exports | Valeurs commençant par `=`, `+`, `-`, `@` préfixées d'une apostrophe (pas de formule dans Excel) |
 | Autorisations | Rôle vérifié sur chaque route ; contrôle par objet sur les demandes ; données RH réservées aux admins/managers ; listes de sélection sans données personnelles |
 | Entrées | `express-validator` sur toutes les écritures ; requêtes SQL paramétrées ; corps JSON limité à 1 Mo |
 | Journalisation | Audit des actions sensibles avec masquage des secrets ; numéros de téléphone masqués dans les logs WhatsApp |
-| Transport / HTTP | `helmet`, CORS mono-origine, HTTPS via Nginx + Let's Encrypt en production |
+| Transport / HTTP | `helmet` + `Permissions-Policy` sur l'API, CORS limité à `FRONTEND_URL` (jamais de réflexion de l'origine), HTTPS via Nginx + Let's Encrypt en production ; détail des erreurs seulement si `NODE_ENV=development` |
 | Abus | 300 requêtes / 15 min / IP ; 10 tentatives de connexion / 15 min par IP et e-mail ; `trust proxy` pour l'IP réelle |
 | Secrets | Aucun secret dans le code ; validation au démarrage ; `.env` ignoré par Git |
 | Webhook | Jeton de vérification + signature HMAC Meta obligatoire |
@@ -433,6 +440,9 @@ Triggers : `check_employee_duplicate_requests` (une demande non refusée par emp
 - Ne jamais concaténer une entrée utilisateur dans du SQL.
 - Tout nouveau champ sensible : l'ajouter à `utils/redact.js`.
 - Le middleware de licence voit les chemins **sans** préfixe de montage : utiliser `req.baseUrl + req.path`.
+- Ne jamais renvoyer le jeton de session dans un corps de réponse ni le stocker côté navigateur.
+- Ne jamais insérer de HTML provenant d'une saisie (`dangerouslySetInnerHTML` interdit) ; toute réponse renvoyant une saisie se fait en JSON ou en `text/plain`.
+- Recherche `LIKE`/`ILIKE` : passer la saisie par `escapeLike` (`utils/sql.js`).
 
 ### 12.3 Risques résiduels
 
@@ -480,14 +490,22 @@ Cible recommandée : VPS Ubuntu 22.04+ (2 vCPU, 2 Go RAM, 20 Go SSD), Node.js 20
 
 ### 15.1 Base de données
 
+Deux comptes : un **propriétaire** pour les migrations, un **applicatif** limité à la lecture et l'écriture.
+
 ```bash
 sudo -u postgres psql <<'SQL'
-CREATE ROLE syslog_app LOGIN PASSWORD '<mot de passe fort, 20+ caractères>';
-CREATE DATABASE syslog_prod OWNER syslog_app;
+CREATE ROLE syslog_owner LOGIN PASSWORD '<mot de passe fort n°1>';
+CREATE ROLE syslog_app   LOGIN PASSWORD '<mot de passe fort n°2>';
+CREATE DATABASE syslog_prod OWNER syslog_owner;
+\c syslog_prod
+GRANT USAGE ON SCHEMA public TO syslog_app;
+-- Droits accordés automatiquement sur toutes les tables et séquences créées par les migrations
+ALTER DEFAULT PRIVILEGES FOR ROLE syslog_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO syslog_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE syslog_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO syslog_app;
 SQL
 ```
 
-Le rôle applicatif ne doit pas être superutilisateur. Pour aller plus loin, utiliser un rôle propriétaire pour les migrations et un rôle limité à `SELECT/INSERT/UPDATE/DELETE` pour l'application.
+Dans `backend/.env` : `DB_USER=syslog_app` (application) et `DB_MIGRATION_USER=syslog_owner` (migrations). Aucun des deux n'est superutilisateur ; le serveur refuse de démarrer en production si `DB_USER` l'est.
 
 ### 15.2 Application
 
@@ -515,46 +533,23 @@ pm2 logs syslog-api
 
 ### 15.4 Nginx
 
-```nginx
-# /etc/nginx/sites-available/syslog
-server {
-    listen 80;
-    server_name syslog.espaceconfiance.ci;
-
-    root /var/www/syslog/frontend/dist;
-    index index.html;
-
-    # En-têtes de sécurité du frontend
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options DENY always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" always;
-
-    # Application monopage
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API et webhook vers Node.js
-    location ~ ^/(api|webhooks|health) {
-        proxy_pass         http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-    }
-}
-```
+La configuration complète est versionnée dans **`deploy/nginx/syslog.conf`** : HTTPS, redirection de toutes les variantes d'adresse (HTTP, `www`) vers l'adresse officielle, en-têtes de sécurité de la page (CSP stricte, HSTS, anti-cadre, Permissions-Policy), cache des fichiers du build, relais de `/api`, `/webhooks` et `/health` vers Node.
 
 ```bash
+sudo apt install nginx certbot python3-certbot-nginx
+sudo certbot certonly --nginx -d syslog.espaceconfiance.ci -d www.syslog.espaceconfiance.ci
+sudo cp /var/www/syslog/deploy/nginx/syslog.conf /etc/nginx/sites-available/syslog   # adapter server_name / chemins
 sudo ln -s /etc/nginx/sites-available/syslog /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d syslog.espaceconfiance.ci      # HTTPS + redirection automatique
 ```
 
-Avec Nginx devant l'API, laisser `TRUST_PROXY=1` : la limite de connexion et les journaux utilisent alors l'adresse réelle des clients.
+Réglages de l'API qui vont avec :
+
+- `FRONTEND_URL=https://syslog.espaceconfiance.ci` — **l'adresse exacte** saisie par les utilisateurs. Une seule adresse officielle est recommandée (les autres sont redirigées par Nginx) ; sinon les lister séparées par des virgules. Une adresse absente de la liste reçoit `403 « Origine de la requête refusée »`.
+- `TRUST_PROXY=1` : la limite de connexion et les journaux utilisent l'adresse réelle des clients.
+- **HTTPS obligatoire** : en production le cookie de session est `Secure` ; sur un site en `http://` la connexion échouerait (retour immédiat à la page de connexion).
+
+Pour tester le build de production et sa CSP en local : `npm run build && npm run preview` (port 4173 ; lancer alors l'API avec `FRONTEND_URL=http://localhost:4173`).
 
 ### 15.5 Licence, pare-feu, sauvegardes
 
@@ -643,14 +638,14 @@ Un audit complet (sécurité, architecture, code, données, tests, documentation
 | SEC-04 | Filtre `user` en échec ouvert (élevé) | ✅ Corrigé | Lien explicite `users.employee_id` ; sans fiche : aucune demande |
 | SEC-05 | Données RH lisibles par tous (élevé) | ✅ Corrigé | `GET /employees` réservé admin/manager ; liste de sélection minimale |
 | SEC-06 | Aucune révocation de JWT (élevé) | ✅ Corrigé | Session en base obligatoire, révocations immédiates |
-| SEC-07 | Secrets faibles, superutilisateur, replis codés en dur (élevé) | ◐ Partiel | Validation au démarrage, replis supprimés, `JWT_SECRET` local régénéré. **Reste** : la base de développement locale utilise toujours le superutilisateur `postgres` (voir 18.3) |
+| SEC-07 | Secrets faibles, superutilisateur, replis codés en dur (élevé) | ✅ Corrigé | Validation au démarrage, replis supprimés, `JWT_SECRET` régénéré ; l'application utilise le compte limité `syslog_app` (voir 18.4, F-01). **Reste** : changer le mot de passe faible du superutilisateur `postgres` local |
 | SEC-08 | Demandes au nom d'autrui (moyen) | ✅ Corrigé | `employe_id` forcé pour un `user` ; initiateur/passagers actifs |
 | SEC-09 | Exemptions du middleware licence inopérantes (élevé) | ✅ Corrigé | Chemin complet ; auth et licence toujours accessibles ; testé |
 | SEC-10 | Licence auto-générée par tout admin (moyen) | ◐ Partiel | Émission et suspension réservées au rôle `superadmin` (éditeur) ; échec « fermé » (503). **Reste** : le secret de signature réside sur le serveur du client — signature asymétrique à prévoir (R-01) |
 | SEC-11 | Limite de sessions exploitable (moyen) | ✅ Corrigé | Sessions libérées à la déconnexion, 3 par utilisateur, décompte par utilisateur, admins jamais bloqués |
 | SEC-12 | Rate limiting derrière proxy (moyen) | ✅ Corrigé | `TRUST_PROXY` ; clé IP + e-mail pour la connexion |
 | SEC-13 | Politique de mot de passe faible (moyen) | ✅ Corrigé | 10 caractères, lettre + chiffre ; écran de changement ; changement imposé |
-| SEC-14 | JWT en `localStorage` (moyen) | ○ Ouvert | Atténué par la révocation serveur et la CSP Nginx ; cookie HttpOnly à prévoir (R-02) |
+| SEC-14 | JWT en `localStorage` (moyen) | ✅ Corrigé | Cookie `HttpOnly; SameSite=Strict; Secure` + contrôle anti-CSRF de l'origine (voir 18.4, F-03) |
 | SEC-15 | Webhook sans signature (faible) | ✅ Corrigé | `X-Hub-Signature-256` obligatoire |
 | SEC-16 | Validation des entrées incomplète (moyen) | ✅ Corrigé | Règles sur toutes les écritures ; erreurs SQL traduites (plus de 500 pour une saisie invalide) |
 | SEC-17 | Dépendances vulnérables (moyen) | ◐ Partiel | Dépendances inutilisées retirées, correctifs appliqués, Vite 6, SheetJS 0.20.3. **Reste** : `react-router` 6 (modéré, corrigé en v7 seulement) et `image-size` via `html-to-docx` (élevé, sans correctif compatible ; n'analyse que les images de notre propre documentation) |
@@ -696,14 +691,30 @@ Un audit complet (sécurité, architecture, code, données, tests, documentation
 
 | Point | Risque | Action recommandée |
 |---|---|---|
-| Base de développement locale en superutilisateur `postgres` avec mot de passe faible | Élevé si le poste est exposé | Créer `syslog_app` (§5), changer le mot de passe de `postgres` |
+| Mot de passe faible du superutilisateur `postgres` local (l'application ne l'utilise plus ; il sert aux migrations et à pgAdmin) | Moyen si le poste est exposé | `ALTER ROLE postgres PASSWORD '…'` puis mettre à jour `DB_MIGRATION_PASSWORD` |
 | Historique Git contenant des noms et e-mails réels | Moyen si le dépôt est public | Vérifier la visibilité du dépôt ; si public, réécrire l'historique ou accepter le risque |
 | Licence : secret de signature présent sur le serveur client (SEC-10) | Commercial | R-01 |
-| JWT en `localStorage` (SEC-14) | Moyen en cas de XSS | R-02 |
 | `react-router` 6, `image-size` | Faible | R-03 |
 | Tables héritées dans la base de développement | Faible en production si base dédiée | Base dédiée |
 
-### 18.4 Maturité après corrections
+### 18.4 Audit de sécurité applicative d'octobre 2026 (SQLi, XSS, CSRF/CORS, en-têtes)
+
+Audit ciblé du code et de l'instance locale (tests non destructifs). Aucune faille directement exploitable ; correctifs de défense en profondeur appliqués et vérifiés (tests automatiques et navigateur réel sur le build de production).
+
+| ID | Constat | Gravité | Statut | Correction |
+|---|---|---|---|---|
+| F-01 | Application connectée à PostgreSQL en superutilisateur `postgres` | Moyenne (Haute en prod) | ✅ Corrigé | Rôle `syslog_app` (lecture/écriture des tables SysLog uniquement), migrations via `DB_MIGRATION_USER`, refus de démarrer en production avec un superutilisateur |
+| F-02 | Page de l'application sans CSP ni anti-clickjacking ; config Nginx non versionnée | Moyenne | ✅ Corrigé | `deploy/nginx/syslog.conf` (CSP stricte, HSTS, X-Frame-Options, Permissions-Policy…), en-têtes Vite en dev et en `preview` |
+| F-03 | Jeton de session lisible par JavaScript (`localStorage`) | Moyenne | ✅ Corrigé | Cookie `HttpOnly; SameSite=Strict; Secure`, jeton absent des réponses, contrôle anti-CSRF de l'origine |
+| F-04 | Webhook : `hub.challenge` renvoyé en HTML (XSS réfléchie conditionnée au jeton) | Faible | ✅ Corrigé | Challenge numérique uniquement, réponse `text/plain` |
+| F-05 | Exports Excel : formules réactivables | Faible | ✅ Corrigé | Préfixe `'` devant `= + - @` |
+| F-06 | Pas de `Permissions-Policy` sur l'API | Faible | ✅ Corrigé | En-tête ajouté |
+| F-07 | Détail des erreurs si `NODE_ENV` absent | Faible | ✅ Corrigé | Détail uniquement si `NODE_ENV=development` |
+| F-08 | Jokers `%` `_` non échappés dans les recherches | Info | ✅ Corrigé | `escapeLike` |
+
+Vérifiés conformes : toutes les requêtes SQL paramétrées (y compris `LIMIT`, listes via `ANY`), aucun `dangerouslySetInnerHTML`/`innerHTML`, aucune action en GET, CORS sans réflexion d'origine (testé avec origine étrangère et `null`), pas de `X-Powered-By`.
+
+### 18.5 Maturité après corrections
 
 | Axe | Avant | Après | Justification |
 |---|---|---|---|
@@ -725,7 +736,6 @@ Un audit complet (sécurité, architecture, code, données, tests, documentation
 | ID | Priorité | Objectif | Travail | Effort |
 |---|---|---|---|---|
 | R-01 | P2 | Licence non falsifiable par le client | Signature asymétrique (clé privée chez l'éditeur, clé publique sur l'instance) ; génération hors application | 3 j |
-| R-02 | P2 | Jeton hors de portée des scripts | Cookie `HttpOnly; Secure; SameSite=Strict` + protection CSRF | 2 j |
 | R-03 | P2 | Dépendances | Migration React Router 7 ; remplacer `html-to-docx` ou fournir le .docx pré-généré | 1,5 j |
 | R-04 | P1 | Tenue en charge | Pagination et filtres serveur sur demandes, employés, comptes, maintenance ; la page Rapports ne charge plus tout l'historique | 2 j |
 | R-05 | P1 | Observabilité | Logs JSON structurés (pino) avec identifiant de requête ; journal des échecs de connexion ; alertes sur `/health` | 2 j |

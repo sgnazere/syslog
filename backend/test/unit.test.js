@@ -82,3 +82,27 @@ test('mots de passe : hachages existants ($2a$, $2y$) et vérifications simultan
     verifyPassword(i % 2 ? 'Secret2026abc' : 'mauvais', hash)));
   assert.deepStrictEqual(results, results.map((_, i) => i % 2 === 1));
 });
+
+test('origines autorisées : liste, joker de sous-domaine, refus des imitations', () => {
+  const { parseOrigins, originChecker } = require('../src/utils/origins');
+  const allowed = parseOrigins(' https://syslog.example.ci/ , http://localhost:5173,https://*.devtunnels.ms ');
+  assert.deepStrictEqual(allowed, ['https://syslog.example.ci', 'http://localhost:5173', 'https://*.devtunnels.ms']);
+  const ok = originChecker(allowed);
+  assert.ok(ok('https://syslog.example.ci'));
+  assert.ok(ok('http://localhost:5173'));
+  assert.ok(ok('https://abc123-5173.euw.devtunnels.ms'));
+  assert.ok(!ok('http://syslog.example.ci'));            // mauvais protocole
+  assert.ok(!ok('https://syslog.example.ci.evil.com'));  // imitation
+  assert.ok(!ok('https://devtunnels.ms.evil.com'));
+  assert.ok(!ok('http://abc.devtunnels.ms'));             // joker limité à https
+  assert.ok(!ok(undefined));
+  assert.ok(!ok('null'));
+});
+
+test('recherche : les jokers LIKE sont échappés', () => {
+  const { escapeLike } = require('../src/utils/sql');
+  assert.strictEqual(escapeLike('%'), '\\%');
+  assert.strictEqual(escapeLike('a_b'), 'a\\_b');
+  assert.strictEqual(escapeLike('c\\d'), 'c\\\\d');
+  assert.strictEqual(escapeLike('Kouassi'), 'Kouassi');
+});
