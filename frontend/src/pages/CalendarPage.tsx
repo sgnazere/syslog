@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRequests } from '../hooks/useRequests';
-import { DemandeDeplacement, DemandeStatut } from '../types';
+import { useHolidays } from '../hooks/useHolidays';
+import { DemandeStatut } from '../types';
 import { DEMANDE_STATUT_CONFIG } from '../lib/constants';
+import { groupRequests, normISO, todayISO, fmtTime, RequestGroup } from '../lib/requestGroups';
 
 // ── Internationalisation ──────────────────────────────────────
 const MONTHS_FR = [
@@ -11,89 +13,20 @@ const MONTHS_FR = [
 const DAYS_FR = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 
 // ── Helpers ───────────────────────────────────────────────────
-/** Normalise n'importe quel format de date en "YYYY-MM-DD" */
-const normISO = (d: any): string => {
-  if (!d) return '';
-  if (typeof d === 'string') return d.slice(0, 10);
-  if (d instanceof Date)     return d.toISOString().slice(0, 10);
-  return String(d).slice(0, 10);
-};
 
 const toISO = (y: number, m: number, d: number) =>
   `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-const todayISO = () => new Date().toISOString().split('T')[0];
 
 const fmtDateLong = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
-const fmtTime = (t?: string) => t ? t.slice(0, 5) : '';
 
 const getInitials = (name: string) =>
   name.split(' ').filter(Boolean).map(p => p[0].toUpperCase()).join('').slice(0, 2) || '?';
 
-// ── Type groupe de demandes ───────────────────────────────────
-interface RequestGroup {
-  key:              string;
-  requests:         (DemandeDeplacement & { passagers?: any[] })[];
-  employe_id:       number;
-  employe_name:     string;
-  employe_poste?:   string;
-  employe_projet?:  string;
-  communes:         { id: number; nom: string }[];
-  date_deplacement: string;   // toujours "YYYY-MM-DD" normalisé
-  heure_depart:     string;
-  heure_retour:     string;
-  objectif:         string;
-  statut:           DemandeStatut;
-  passagers:        any[];
-  immatriculation?: string;
-  marque?:          string;
-  modele?:          string;
-  chauffeur_name?:  string;
-  chauffeur_tel?:   string;
-}
-
-const makeGroupKey = (r: DemandeDeplacement) =>
-  `${r.employe_id}|${normISO(r.date_deplacement)}|${fmtTime(r.heure_depart)}|${r.objectif.trim()}`;
-
-const groupRequests = (
-  requests: (DemandeDeplacement & { passagers?: any[] })[]
-): RequestGroup[] => {
-  const map = new Map<string, RequestGroup>();
-  for (const r of requests) {
-    const key = makeGroupKey(r);
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        requests:         [],
-        employe_id:       r.employe_id,
-        employe_name:     r.employe_name,
-        employe_poste:    r.employe_poste,
-        employe_projet:   r.employe_projet,
-        communes:         [],
-        date_deplacement: normISO(r.date_deplacement),  // ← normalisé
-        heure_depart:     r.heure_depart,
-        heure_retour:     r.heure_retour,
-        objectif:         r.objectif,
-        statut:           r.statut,
-        passagers:        r.passagers || [],
-        immatriculation:  r.immatriculation,
-        marque:           r.marque,
-        modele:           r.modele,
-        chauffeur_name:   r.chauffeur_name,
-        chauffeur_tel:    r.chauffeur_tel,
-      });
-    }
-    const g = map.get(key)!;
-    g.requests.push(r);
-    if (!g.communes.some(c => c.id === r.commune_id))
-      g.communes.push({ id: r.commune_id, nom: r.commune_nom });
-  }
-  return Array.from(map.values());
-};
 
 // ── Badge statut ──────────────────────────────────────────────
 const StatutBadge = ({ statut }: { statut: DemandeStatut }) => {
@@ -111,11 +44,13 @@ const CHIP_BG: Record<DemandeStatut, string> = {
   en_attente: 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100',
   validee:    'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100',
   refusee:    'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100',
+  terminee:   'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200',
 };
 const CHIP_DOT: Record<DemandeStatut, string> = {
   en_attente: 'bg-amber-400',
   validee:    'bg-emerald-500',
   refusee:    'bg-slate-300',
+  terminee:   'bg-slate-500',
 };
 
 // ── Tooltip survol ────────────────────────────────────────────
@@ -231,13 +166,13 @@ const RequestChip = ({
 const MAX_VISIBLE = 3;
 
 const DayCell = ({
-  day, iso, groups, isToday,
+  day, groups, isToday, holiday,
   onHover, onLeave, onGroupClick,
 }: {
   day:          number | null;
-  iso:          string;
   groups:       RequestGroup[];
   isToday:      boolean;
+  holiday?:     string;
   onHover:      (g: RequestGroup, e: React.MouseEvent) => void;
   onLeave:      () => void;
   onGroupClick: (g: RequestGroup) => void;
@@ -257,6 +192,9 @@ const DayCell = ({
             ${isToday ? 'bg-primary text-white' : 'text-slate-600'}`}>
             {day}
           </div>
+          {holiday && (
+            <div className="text-[10px] font-medium text-rose-600 truncate" title={holiday}>🎉 {holiday}</div>
+          )}
 
           {/* Chips des demandes */}
           <div className="flex flex-col gap-0.5 min-w-0">
@@ -435,10 +373,12 @@ export const CalendarPage = () => {
   const { data: requests = [], isLoading } = useRequests({ from, to });
 
   // Groupement + index par date
-  const groups = useMemo(
-    () => groupRequests(requests as (DemandeDeplacement & { passagers?: any[] })[]),
-    [requests]
-  );
+  const groups = useMemo(() => groupRequests(requests), [requests]);
+
+  // Jours fériés (les jours récurrents sont comparés sur le mois et le jour)
+  const { data: holidays = [] } = useHolidays();
+  const holidayFor = (iso: string) =>
+    holidays.find(h => normISO(h.date) === iso || (h.recurring && normISO(h.date).slice(5) === iso.slice(5)))?.name;
 
   const groupsByDate = useMemo(() => {
     const map: Record<string, RequestGroup[]> = {};
@@ -514,6 +454,10 @@ export const CalendarPage = () => {
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> En attente
         </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-500" /> Terminée
+        </span>
+        <span className="flex items-center gap-1.5 text-rose-600">🎉 Jour férié</span>
         <span className="ml-auto text-slate-400 italic hidden sm:block">
           Survolez pour aperçu · Cliquez pour détails
         </span>
@@ -547,8 +491,8 @@ export const CalendarPage = () => {
                 <DayCell
                   key={i}
                   day={day}
-                  iso={iso}
                   groups={iso ? (groupsByDate[iso] ?? []) : []}
+                  holiday={iso ? holidayFor(iso) : undefined}
                   isToday={iso === todayISO()}
                   onHover={handleHover}
                   onLeave={handleLeave}

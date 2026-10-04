@@ -6,8 +6,8 @@ const { query } = require('../config/database');
 const getAll = async (req, res, next) => {
   try {
     const { userId, entity, action, from, to } = req.query;
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const offset = (page - 1) * limit;
 
     const params = [];
@@ -19,17 +19,16 @@ const getAll = async (req, res, next) => {
     if (from)   { params.push(from);   where += ` AND al.created_at >= $${params.length}`; }
     if (to)     { params.push(to);     where += ` AND al.created_at <= $${params.length}::date + interval '1 day'`; }
 
-    // Requête principale avec JOIN correct (nom + prenom au lieu de name)
     const sql = `
       SELECT
         al.id, al.action, al.entity, al.entity_id,
         al.details, al.ip_address, al.created_at,
         al.user_id,
-        u.prenom || ' ' || u.nom AS user_name,
+        COALESCE(u.prenom || ' ' || u.nom, 'Compte supprimé') AS user_name,
         u.email                  AS user_email,
         u.role                   AS user_role
       FROM audit_logs al
-      JOIN users u ON u.id = al.user_id
+      LEFT JOIN users u ON u.id = al.user_id
       ${where}
       ORDER BY al.created_at DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;

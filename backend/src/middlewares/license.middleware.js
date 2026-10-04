@@ -1,61 +1,50 @@
 const { getLicenseFromDB } = require('../controllers/license.controller');
 
 /**
- * Middleware de validation de licence.
- * Bloque toutes les requêtes si la licence est absente, expirée ou suspendue.
- * Les routes publiques (/api/auth/login, /health) sont exemptées.
+ * Chemin complet de la requête, indépendamment du point de montage
+ * (dans un middleware monté sur '/api', req.path ne contient pas '/api').
+ */
+const fullPath = (req) => req.baseUrl + req.path;
+
+// Routes accessibles même sans licence valide : authentification et gestion de la licence
+const isExempt = (path) =>
+  path.startsWith('/api/auth/') || path === '/api/license' || path.startsWith('/api/license/');
+
+/**
+ * Bloque les requêtes /api si la licence est absente, expirée ou suspendue.
  */
 const checkLicense = async (req, res, next) => {
+  if (isExempt(fullPath(req))) return next();
+
+  let licence;
   try {
-    // Routes exemptes de vérification
-    const exemptPaths = [
-      '/api/auth/login',
-      '/api/auth/change-password',
-      '/api/license',       // permettre l'accès à la page licence même si expirée
-      '/health',
-    ];
-    if (exemptPaths.some(p => req.path.startsWith(p))) return next();
-
-    const licence = await getLicenseFromDB();
-
-    if (!licence) {
-      return res.status(403).json({
-        error:   'Système non licencié. Contactez votre administrateur.',
-        code:    'NO_LICENSE',
-        redirect: '/license',
-      });
-    }
-
-    const today        = new Date().toISOString().split('T')[0];
-    const isExpired    = licence.date_expiration < today;
-    const isSuspended  = licence.statut === 'suspendue';
-
-    if (isExpired || licence.statut === 'expiree') {
-      return res.status(403).json({
-        error:          'Licence expirée. Veuillez renouveler votre licence.',
-        code:           'LICENSE_EXPIRED',
-        date_expiration: licence.date_expiration,
-        redirect:        '/license',
-      });
-    }
-
-    if (isSuspended) {
-      return res.status(403).json({
-        error:    'Licence suspendue. Contactez votre administrateur.',
-        code:     'LICENSE_SUSPENDED',
-        redirect: '/license',
-      });
-    }
-
-    // Attacher la licence à la requête pour usage en aval
-    req.licence = licence;
-    next();
+    licence = await getLicenseFromDB();
   } catch (err) {
-    // En cas d'erreur DB sur la vérification, on laisse passer (fail open)
-    // pour ne pas bloquer les admins qui essaient de corriger la situation
-    console.error('[licence] Erreur vérification licence:', err.message);
-    next();
+    console.error('[licence] Vérification impossible :', err.message);
+    return res.status(503).json({ error: 'Service temporairement indisponible.' });
   }
+
+  if (!licence) {
+    return res.status(403).json({
+      error: 'Système non licencié. Contactez votre administrateur.',
+      code: 'NO_LICENSE', redirect: '/license',
+    });
+  }
+  if (licence.is_expired || licence.statut === 'expiree') {
+    return res.status(403).json({
+      error: 'Licence expirée. Veuillez renouveler votre licence.',
+      code: 'LICENSE_EXPIRED', date_expiration: licence.date_expiration, redirect: '/license',
+    });
+  }
+  if (licence.statut === 'suspendue') {
+    return res.status(403).json({
+      error: 'Licence suspendue. Contactez votre administrateur.',
+      code: 'LICENSE_SUSPENDED', redirect: '/license',
+    });
+  }
+
+  req.licence = licence;
+  next();
 };
 
-module.exports = { checkLicense };
+module.exports = { checkLicense, isExempt };

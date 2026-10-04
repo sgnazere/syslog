@@ -36,7 +36,7 @@ export interface Session {
   expires_at: string;
 }
 
-export const useLicenseInfo = () =>
+export const useLicenseInfo = (enabled = true) =>
   useQuery({
     queryKey: ['license'],
     queryFn:  () =>
@@ -44,6 +44,7 @@ export const useLicenseInfo = () =>
          .then(r => r.data),
     staleTime: 30_000,
     retry:     false,
+    enabled,
   });
 
 export const useGenerateLicense = () => {

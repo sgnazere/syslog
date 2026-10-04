@@ -2,15 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import { Notification } from '../types';
 
-export const useNotifications = () => {
+export const useNotifications = (enabled = true) => {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => api.get<{ data: Notification[] }>('/notifications').then(r => r.data.data),
-    refetchInterval: 30000, // Poll toutes les 30s
+    refetchInterval: 60_000,
+    enabled,
   });
   const markRead = useMutation({
-    mutationFn: (id: string) => api.patch(`/notifications/${id}/read`),
+    mutationFn: (id: number) => api.patch(`/notifications/${id}/read`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
   const markAllRead = useMutation({

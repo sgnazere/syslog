@@ -5,10 +5,10 @@ import { useVehicles } from '../hooks/useVehicles';
 import { useDrivers } from '../hooks/useDrivers';
 import { DemandeDeplacement, Vehicule, Chauffeur } from '../types';
 import { exportToXlsx, exportMultiSheetXlsx } from '../lib/xlsxExport';
+import { communesLabel, normISO, todayISO } from '../lib/requestGroups';
 import toast from 'react-hot-toast';
 
 // ── Helpers ───────────────────────────────────────────────────
-const todayISO = () => new Date().toISOString().split('T')[0];
 
 const startOfWeek = () => {
   const now = new Date();
@@ -164,14 +164,14 @@ export const ReportsPage = () => {
 
   // ── 1. Rapport journalier ──────────────────────────────────
   const exportDaily = () => {
-    const dayReqs = requests.filter(r => periodMode === 'today' ? r.date_deplacement === todayISO() : true);
+    const dayReqs = requests.filter(r => periodMode === 'today' ? normISO(r.date_deplacement) === todayISO() : true);
     if (dayReqs.length === 0) throw new Error('Aucune donnée pour cette période.');
 
     const rows = dayReqs.map(r => ({
       'Date':            r.date_deplacement,
       'Initiateur':      r.employe_name,
       'Poste':           r.employe_poste || '',
-      'Commune':         r.commune_nom,
+      'Commune':         communesLabel(r),
       'Heure départ':    r.heure_depart?.slice(0,5),
       'Heure retour':    r.heure_retour?.slice(0,5),
       'Durée (min)':     minutesBetween(r.heure_depart, r.heure_retour),
@@ -179,8 +179,8 @@ export const ReportsPage = () => {
       'Statut':          STATUT_LABEL[r.statut] || r.statut,
       'Véhicule':        r.immatriculation ? `${r.marque} ${r.modele} (${r.immatriculation})` : 'Non affecté',
       'Chauffeur':       r.chauffeur_name || 'Non affecté',
-      'Passagers':       ((r as any).passagers || []).map((p: any) => p.name).join(', ') || '—',
-      'Nb personnes':    1 + ((r as any).passagers?.length || 0),
+      'Passagers':       (r.passagers || []).map(p => p.name).join(', ') || '—',
+      'Nb personnes':    1 + (r.passagers?.length || 0),
     }));
     exportToXlsx(rows, 'Rapport journalier', 'rapport_journalier', [12,18,16,14,10,10,10,30,12,28,18,30,10]);
   };
@@ -254,7 +254,7 @@ export const ReportsPage = () => {
       : null;
 
     const parCommune: Record<string, number> = {};
-    periodReqs.forEach(r => { parCommune[r.commune_nom] = (parCommune[r.commune_nom] || 0) + 1; });
+    periodReqs.forEach(r => (r.communes?.length ? r.communes.map(c => c.nom) : [r.commune_nom]).forEach(nom => { parCommune[nom] = (parCommune[nom] || 0) + 1; }));
 
     const summary = [
       { 'Indicateur': 'Volume total de missions', 'Valeur': total },
@@ -274,9 +274,9 @@ export const ReportsPage = () => {
     const detail = periodReqs.map(r => ({
       'Date':       r.date_deplacement,
       'Initiateur': r.employe_name,
-      'Commune':    r.commune_nom,
+      'Commune':    communesLabel(r),
       'Statut':     STATUT_LABEL[r.statut] || r.statut,
-      'Motif refus': r.statut === 'refusee' ? ((r as any).motif_refus || '—') : '—',
+      'Motif refus': r.statut === 'refusee' ? (r.motif_refus || '—') : '—',
     }));
 
     exportMultiSheetXlsx([
@@ -314,7 +314,7 @@ export const ReportsPage = () => {
     const rows = requests.map(r => ({
       'Date prévue':     r.date_deplacement,
       'Initiateur':      r.employe_name,
-      'Commune':         r.commune_nom,
+      'Commune':         communesLabel(r),
       'Heure prévue départ': r.heure_depart?.slice(0,5),
       'Heure prévue retour': r.heure_retour?.slice(0,5),
       'Statut final':    STATUT_LABEL[r.statut] || r.statut,

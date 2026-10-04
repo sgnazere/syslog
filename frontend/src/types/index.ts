@@ -1,11 +1,10 @@
 // ── Rôles (table users) ──────────────────────────────────────
-export type UserRole = 'admin' | 'manager' | 'user';
+export type UserRole = 'superadmin' | 'admin' | 'manager' | 'user';
 
 // ── Statuts DB (ENUMs PostgreSQL) ────────────────────────────
 export type DemandeStatut    = 'en_attente' | 'validee' | 'refusee' | 'terminee';
 export type VehiculeStatut   = 'disponible' | 'en_mission' | 'en_maintenance' | 'hors_service';
 export type ChauffeurStatut  = 'disponible' | 'en_mission' | 'indisponible';
-export type DeplacementStatut = 'planifie' | 'en_cours' | 'termine' | 'annule';
 export type MaintenanceStatut = 'planifiee' | 'en_cours' | 'terminee';
 
 // ── Utilisateur (table users) ────────────────────────────────
@@ -24,6 +23,7 @@ export interface User {
   last_login?: string;
   date_creation?: string;
   date_modification?: string;
+  must_change_password?: boolean;
 }
 
 // ── Employé (table employees) ────────────────────────────────
@@ -82,17 +82,35 @@ export interface Commune {
   nom: string;
 }
 
-// ── Demande de déplacement (table demande_deplacement) ───────
+// ── Notification interne (table notifications) ───────────────
 export interface Notification {
-  id: string;
-  user_id: string;
+  id: number;
   title: string;
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   read: boolean;
-  request_id?: string | null;
+  request_id?: number | null;
   created_at: string;
 }
+
+// ── Jour férié (table holidays) ──────────────────────────────
+export interface Holiday {
+  id: number;
+  name: string;
+  date: string;
+  recurring: boolean;
+}
+
+// ── Demande de déplacement (table demande_deplacement) ───────
+export interface Passager {
+  id: number;
+  nom: string;
+  prenoms: string;
+  name: string;
+  poste?: string;
+  projet?: string;
+}
+
 
 export interface DemandeDeplacement {
   id: number;
@@ -118,30 +136,10 @@ export interface DemandeDeplacement {
   modele?: string;
   date_creation: string;
   date_modification: string;
-}
-
-// ── Sortie véhicule (table sorties_vehicules) ────────────────
-export interface SortieVehicule {
-  id: number;
-  code_sortie: string;
-  vehicule_id: number;
-  chauffeur_id: number;
-  date_sortie: string;
-  heure_depart: string;
-  heure_retour: string;
-  destination_commune?: string;
-  statut: 'planifie' | 'en_cours' | 'termine';
-}
-
-// ── Réponses API génériques ──────────────────────────────────
-export interface ApiResponse<T> {
-  data: T;
-  message?: string;
-  total?: number;
-  groupingSuggestions?: Array<{ id: number; employe_name: string; heure_depart: string; heure_retour: string; }>;
-}
-
-export interface ApiError {
-  error: string;
-  details?: { field: string; message: string }[];
+  km_depart?: number | null;
+  km_retour?: number | null;
+  date_retour_effective?: string | null;
+  motif_refus?: string | null;
+  communes: Commune[];
+  passagers: Passager[];
 }

@@ -1,88 +1,15 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useRequests, useCreateRequest, useValidateRequest, useRejectRequest } from '../hooks/useRequests';
+import { useRequests, useCreateRequest, useValidateRequest, useRejectRequest, useCompleteRequest } from '../hooks/useRequests';
 import { useVehicles } from '../hooks/useVehicles';
 import { useDrivers } from '../hooks/useDrivers';
 import { useCommunes } from '../hooks/useCommunes';
 import { useActiveEmployees } from '../hooks/useEmployees';
-import { useCompleteRequest } from '../hooks/useMaintenance';
 import { Commune, DemandeDeplacement, DemandeStatut, Employee } from '../types';
-import { DEMANDE_STATUT_CONFIG } from '../lib/constants';
+import { DEMANDE_STATUT_CONFIG, hasRole } from '../lib/constants';
+import { groupRequests, normISO, todayISO, perDestination, RequestGroup } from '../lib/requestGroups';
 
-// ── Type groupe : même trajet, destinations multiples ─────────
-interface RequestGroup {
-  key:              string;
-  requests:         (DemandeDeplacement & { passagers?: any[] })[];
-  employe_id:       number;
-  employe_name:     string;
-  employe_poste?:   string;
-  employe_projet?:  string;
-  communes:         { id: number; nom: string }[];
-  date_deplacement: string;
-  heure_depart:     string;
-  heure_retour:     string;
-  objectif:         string;
-  statut:           DemandeStatut;
-  passagers:        any[];
-  vehicule_id?:     number;
-  immatriculation?: string;
-  marque?:          string;
-  modele?:          string;
-  chauffeur_id?:    number;
-  chauffeur_name?:  string;
-  chauffeur_tel?:   string;
-}
-
-// Normalise tout format de date PostgreSQL en "YYYY-MM-DD"
-const normISO = (d: any): string => {
-  if (!d) return '';
-  if (typeof d === 'string') return d.slice(0, 10);
-  if (d instanceof Date)     return d.toISOString().slice(0, 10);
-  return String(d).slice(0, 10);
-};
-
-// Clé de regroupement : même employé + date + heure + objectif
-const makeGroupKey = (r: DemandeDeplacement) =>
-  `${r.employe_id}|${normISO(r.date_deplacement)}|${r.heure_depart?.slice(0, 5)}|${r.objectif.trim()}`;
-
-const groupRequests = (
-  requests: (DemandeDeplacement & { passagers?: any[] })[]
-): RequestGroup[] => {
-  const map = new Map<string, RequestGroup>();
-  for (const r of requests) {
-    const key = makeGroupKey(r);
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        requests:         [],
-        employe_id:       r.employe_id,
-        employe_name:     r.employe_name,
-        employe_poste:    r.employe_poste,
-        employe_projet:   r.employe_projet,
-        communes:         [],
-        date_deplacement: normISO(r.date_deplacement),
-        heure_depart:     r.heure_depart,
-        heure_retour:     r.heure_retour,
-        objectif:         r.objectif,
-        statut:           r.statut,
-        passagers:        r.passagers || [],
-        vehicule_id:      r.vehicule_id,
-        immatriculation:  r.immatriculation,
-        marque:           r.marque,
-        modele:           r.modele,
-        chauffeur_id:     r.chauffeur_id,
-        chauffeur_name:   r.chauffeur_name,
-        chauffeur_tel:    r.chauffeur_tel,
-      });
-    }
-    const g = map.get(key)!;
-    g.requests.push(r);
-    if (!g.communes.some(c => c.id === r.commune_id)) {
-      g.communes.push({ id: r.commune_id, nom: r.commune_nom });
-    }
-  }
-  return Array.from(map.values());
-};
 
 // ── Badge statut ──────────────────────────────────────────────
 const StatutBadge = ({ statut }: { statut: DemandeStatut }) => {
@@ -324,12 +251,16 @@ const CommunesSelect = ({
 
 // ── Modal création demande ────────────────────────────────────
 const CreateModal = ({ onClose }: { onClose: () => void }) => {
+  const { user } = useAuth();
   const { data: communes  = [] } = useCommunes();
   const { data: employees = [] } = useActiveEmployees();
   const createMutation = useCreateRequest();
 
+  // Un utilisateur simple crée toujours la demande pour lui-même
+  const selfOnly = user?.role === 'user';
+
   const [form, setForm] = useState({
-    employe_id:       '',
+    employe_id:       selfOnly && user?.employee_id ? String(user.employee_id) : '',
     date_deplacement: '',
     heure_depart:     '08:00',
     heure_retour:     '17:00',
@@ -354,7 +285,9 @@ const CreateModal = ({ onClose }: { onClose: () => void }) => {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!form.employe_id)        e.employe_id       = 'Employé initiateur requis';
+    if (!form.employe_id)        e.employe_id       = selfOnly
+      ? "Votre compte n'est lié à aucune fiche employé : contactez un administrateur"
+      : 'Employé initiateur requis';
     if (communeIds.length === 0) e.commune_id       = 'Commune requise';
     if (!form.date_deplacement)  e.date_deplacement = 'Date requise';
     if (!form.heure_depart)      e.heure_depart     = 'Heure de départ requise';
@@ -368,21 +301,20 @@ const CreateModal = ({ onClose }: { onClose: () => void }) => {
 
   const handleSubmit = async () => {
     if (!validate()) return;
-    await Promise.all(communeIds.map(communeId =>
-      createMutation.mutateAsync({
-        employe_id:       parseInt(form.employe_id),
-        commune_id:       communeId,
-        date_deplacement: form.date_deplacement,
-        heure_depart:     form.heure_depart,
-        heure_retour:     form.heure_retour,
-        objectif:         form.objectif.trim(),
-        passager_ids:     passagerIds,
-      })
-    ));
+    // Une seule demande, avec toutes ses destinations
+    await createMutation.mutateAsync({
+      employe_id:       parseInt(form.employe_id, 10),
+      commune_ids:      communeIds,
+      date_deplacement: form.date_deplacement,
+      heure_depart:     form.heure_depart,
+      heure_retour:     form.heure_retour,
+      objectif:         form.objectif.trim(),
+      passager_ids:     passagerIds,
+    });
     onClose();
   };
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayISO();
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -404,11 +336,12 @@ const CreateModal = ({ onClose }: { onClose: () => void }) => {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Employé initiateur *</label>
             <select value={form.employe_id} onChange={e => set('employe_id', e.target.value)}
+              disabled={selfOnly}
               className={`input ${errors.employe_id ? 'border-red-400' : ''}`}>
               <option value="">Sélectionner l'employé qui initie…</option>
               {employees.map(e => (
                 <option key={e.id} value={e.id}>
-                  {e.name}{e.poste ? ` — ${e.poste}` : ''}{e.telephone ? ` (${e.telephone})` : ''}
+                  {e.name}{e.poste ? ` — ${e.poste}` : ''}
                 </option>
               ))}
             </select>
@@ -494,7 +427,7 @@ const CreateModal = ({ onClose }: { onClose: () => void }) => {
               <div>🕐 Horaire : <strong>{form.heure_depart} → {form.heure_retour}</strong></div>
               <div>👥 Total personnes : <strong>{totalPersonnes}</strong></div>
               {communeIds.length > 1 && (
-                <div>📝 {communeIds.length} destinations → {communeIds.length} enregistrements liés, <strong>traitement unique</strong></div>
+                <div>📝 Une seule demande pour les {communeIds.length} destinations</div>
               )}
             </div>
           )}
@@ -511,7 +444,7 @@ const CreateModal = ({ onClose }: { onClose: () => void }) => {
                   </svg>
                   Envoi en cours…
                 </span>
-              : `✓ Soumettre ${communeIds.length > 1 ? `les ${communeIds.length} demandes` : 'la demande'}`
+              : '✓ Soumettre la demande'
             }
           </button>
         </div>
@@ -544,23 +477,23 @@ const ValidateModal = ({ group, onClose }: { group: RequestGroup; onClose: () =>
   const capaciteOk = !selectedVehicle || selectedVehicle.capacite >= totalPersonnes;
 
   const handleValidate = async () => {
-    // Valider toutes les demandes du groupe en une seule action
-    await Promise.all(group.requests.map(r =>
-      validateMutation.mutateAsync({
+    // Une demande par groupe ; les anciennes demandes enregistrées en plusieurs lignes
+    // sont validées l'une après l'autre, le véhicule et le chauffeur étant affectés à la première.
+    for (const [i, r] of group.requests.entries()) {
+      await validateMutation.mutateAsync({
         id:           r.id,
-        vehicule_id:  vehicule_id  ? parseInt(vehicule_id)  : undefined,
-        chauffeur_id: chauffeur_id ? parseInt(chauffeur_id) : undefined,
-      })
-    ));
+        vehicule_id:  i === 0 && vehicule_id  ? parseInt(vehicule_id, 10)  : undefined,
+        chauffeur_id: i === 0 && chauffeur_id ? parseInt(chauffeur_id, 10) : undefined,
+      });
+    }
     onClose();
   };
 
   const handleReject = async () => {
     if (!reason.trim()) { setReasonErr('Motif obligatoire.'); return; }
-    // Refuser toutes les demandes du groupe en une seule action
-    await Promise.all(group.requests.map(r =>
-      rejectMutation.mutateAsync({ id: r.id, reason: reason.trim() })
-    ));
+    for (const r of group.requests) {
+      await rejectMutation.mutateAsync({ id: r.id, reason: reason.trim() });
+    }
     onClose();
   };
 
@@ -576,7 +509,7 @@ const ValidateModal = ({ group, onClose }: { group: RequestGroup; onClose: () =>
             </h2>
             {group.communes.length > 1 && (
               <p className="text-xs text-blue-600 mt-0.5 font-medium">
-                {group.communes.length} destinations — validation groupée
+                {group.communes.length} destinations — une seule mission
               </p>
             )}
           </div>
@@ -715,7 +648,7 @@ const ValidateModal = ({ group, onClose }: { group: RequestGroup; onClose: () =>
               <button onClick={handleValidate}
                 disabled={isPending || (!!vehicule_id && !capaciteOk)}
                 className="btn-primary flex-1">
-                {isPending ? 'Validation…' : `✓ Valider${group.communes.length > 1 ? ` (${group.communes.length})` : ''}`}
+                {isPending ? 'Validation…' : '✓ Valider'}
               </button>
             </>
           ) : (
@@ -723,7 +656,7 @@ const ValidateModal = ({ group, onClose }: { group: RequestGroup; onClose: () =>
               <button onClick={() => setRejectMode(false)} className="btn-secondary flex-1">← Retour</button>
               <button onClick={handleReject} disabled={isPending}
                 className="flex-1 py-2 text-sm bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
-                {isPending ? 'Refus…' : `Refuser${group.communes.length > 1 ? ` (${group.communes.length})` : ''}`}
+                {isPending ? 'Refus…' : 'Refuser'}
               </button>
             </>
           )}
@@ -739,8 +672,8 @@ const GroupingAlert = ({ requests }: { requests: DemandeDeplacement[] }) => {
   const grouped = useMemo(() => {
     // Regrouper par commune+date, ne garder qu'un représentant par employé
     const acc: Record<string, DemandeDeplacement[]> = {};
-    requests.filter(r => r.statut === 'en_attente').forEach(r => {
-      const key = `${r.commune_id}_${r.date_deplacement}`;
+    requests.filter(r => r.statut === 'en_attente').flatMap(perDestination).forEach(r => {
+      const key = `${r.commune_id}_${normISO(r.date_deplacement)}`;
       if (!acc[key]) acc[key] = [];
       if (!acc[key].some(existing => existing.employe_id === r.employe_id)) {
         acc[key].push(r);
@@ -809,13 +742,13 @@ const CloseModal = ({ group, onClose }: { group: RequestGroup; onClose: () => vo
 
   const handleSubmit = async () => {
     if (!validate()) return;
-    await Promise.all(group.requests.map(r =>
-      completeMutation.mutateAsync({
+    for (const r of group.requests) {
+      await completeMutation.mutateAsync({
         id:        r.id,
-        km_depart: parseInt(kmDepart),
-        km_retour: parseInt(kmRetour),
-      })
-    ));
+        km_depart: parseInt(kmDepart, 10),
+        km_retour: parseInt(kmRetour, 10),
+      });
+    }
     onClose();
   };
 
@@ -1038,6 +971,11 @@ const RequestCard = ({ group, canManage, onManage, onClose }: {
       </div>
     )}
 
+    {group.statut === 'refusee' && group.motif_refus && (
+      <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-2.5 py-1.5">
+        Motif du refus : {group.motif_refus}
+      </p>
+    )}
     {canManage && group.statut === 'en_attente' && (
       <button onClick={onManage}
         className="mt-3 w-full py-2 text-xs font-semibold bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors">
@@ -1056,9 +994,15 @@ const RequestCard = ({ group, canManage, onManage, onClose }: {
 // ── Page principale ───────────────────────────────────────────
 export const RequestsPage = () => {
   const { user } = useAuth();
-  const canManage = user?.role === 'admin' || user?.role === 'manager';
+  const canManage = hasRole(user?.role, ['admin', 'manager']);
 
-  const [filters,    setFilters]    = useState({ statut: '', from: '', to: '' });
+  // Le filtre de statut peut venir de l'adresse (ex. menu de la cloche : ?statut=en_attente)
+  const [searchParams] = useSearchParams();
+  const [filters,    setFilters]    = useState({ statut: searchParams.get('statut') || '', from: '', to: '' });
+  useEffect(() => {
+    const statut = searchParams.get('statut');
+    if (statut !== null) setFilters(f => ({ ...f, statut }));
+  }, [searchParams]);
   const [showCreate, setShowCreate] = useState(false);
   const [managing,   setManaging]   = useState<RequestGroup | null>(null);
   const [closing,    setClosing]    = useState<RequestGroup | null>(null);
@@ -1072,7 +1016,7 @@ export const RequestsPage = () => {
 
   // Regrouper les demandes par trajet
   const groups = useMemo(
-    () => groupRequests(requests as (DemandeDeplacement & { passagers?: any[] })[]),
+    () => groupRequests(requests),
     [requests]
   );
 
@@ -1093,7 +1037,7 @@ export const RequestsPage = () => {
           <p className="text-sm text-slate-500 mt-0.5">
             {stats.total} demande{stats.total !== 1 ? 's' : ''}
             {groups.some(g => g.communes.length > 1) && (
-              <span className="ml-1 text-blue-500">· multi-destinations groupées</span>
+              <span className="ml-1 text-blue-500">· dont multi-destinations</span>
             )}
           </p>
         </div>
@@ -1131,6 +1075,7 @@ export const RequestsPage = () => {
           <option value="en_attente">En attente</option>
           <option value="validee">Validées</option>
           <option value="refusee">Refusées</option>
+          <option value="terminee">Terminées</option>
         </select>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">Du</span>

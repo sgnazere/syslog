@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   useLicenseInfo, useGenerateLicense, useActivateLicense,
   useToggleLicenseStatus, useSessions, useKillSession,
@@ -67,8 +68,8 @@ const GenerateForm = ({ onDone }: { onDone: (key: string) => void }) => {
   const [form, setForm] = useState({
     organisation:    '',
     contact:         '',
-    max_utilisateurs: '20',
-    max_connexions:  '10',
+    max_utilisateurs: '500',
+    max_connexions:  '500',
     date_expiration: '',
     notes:           '',
   });
@@ -109,12 +110,12 @@ const GenerateForm = ({ onDone }: { onDone: (key: string) => void }) => {
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Max utilisateurs</label>
-          <input type="number" min="1" max="500" value={form.max_utilisateurs}
+          <input type="number" min="1" max="5000" value={form.max_utilisateurs}
             onChange={e => set('max_utilisateurs', e.target.value)} className="input" />
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Max connexions simultanées</label>
-          <input type="number" min="1" max="100" value={form.max_connexions}
+          <input type="number" min="1" max="5000" value={form.max_connexions}
             onChange={e => set('max_connexions', e.target.value)} className="input" />
         </div>
         <div className="sm:col-span-2">
@@ -191,6 +192,8 @@ const GeneratedKeyDisplay = ({ licenseKey, onClose }: { licenseKey: string; onCl
 
 // ── Page principale ───────────────────────────────────────────
 export const LicensePage = () => {
+  // Émission et suspension des licences : super-administrateur uniquement
+  const isSuperAdmin = useAuth().user?.role === 'superadmin';
   const { data: licenseData, isLoading } = useLicenseInfo();
   const { data: sessionsData, isLoading: loadingSessions } = useSessions();
   const activateMutation  = useActivateLicense();
@@ -228,23 +231,6 @@ export const LicensePage = () => {
         {licence && <StatutBadge statut={licence.statut} isExpired={licence.is_expired} />}
       </div>
 
-      {/* Bouton téléchargement manuel */}
-      <div className="flex justify-end mb-4">
-        <a
-          href="/api/docs/manual"
-          download="SysLog_Manuel_Utilisateur_v1.0.0.docx"
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary border border-primary/30 bg-primary/5 rounded-lg hover:bg-primary/10 transition-colors"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="12" y1="18" x2="12" y2="12"/>
-            <polyline points="9 15 12 18 15 15"/>
-          </svg>
-          Télécharger le manuel Word (.docx)
-        </a>
-      </div>
-
       {/* Alerte expiration imminente */}
       {licence && isExpiringSoon && !licence.is_expired && (
         <div className="mb-5 p-4 bg-amber-50 border border-amber-300 rounded-lg flex items-start gap-3">
@@ -280,7 +266,7 @@ export const LicensePage = () => {
           { key: 'info',     label: 'Informations' },
           { key: 'sessions', label: `Sessions actives${stats ? ` (${stats.connexions_actives})` : ''}` },
           { key: 'activate', label: 'Activer une clé' },
-          { key: 'generate', label: '✦ Générer une licence' },
+          ...(isSuperAdmin ? [{ key: 'generate', label: '✦ Générer une licence' }] as const : []),
         ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
@@ -315,9 +301,11 @@ export const LicensePage = () => {
                 <button onClick={() => setTab('activate')} className="btn-secondary">
                   Activer une clé
                 </button>
-                <button onClick={() => setTab('generate')} className="btn-primary">
-                  Générer une licence
-                </button>
+                {isSuperAdmin && (
+                  <button onClick={() => setTab('generate')} className="btn-primary">
+                    Générer une licence
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -372,7 +360,7 @@ export const LicensePage = () => {
                   <button onClick={() => setTab('activate')} className="btn-secondary text-sm">
                     Changer de clé
                   </button>
-                  {licence.statut === 'active' ? (
+                  {!isSuperAdmin ? null : licence.statut === 'active' ? (
                     <button onClick={() => toggleMutation.mutate({ id: licence.id, statut: 'suspendue' })}
                       className="text-sm px-3 py-2 text-amber-700 border border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors">
                       Suspendre
@@ -505,7 +493,7 @@ export const LicensePage = () => {
       )}
 
       {/* ── Onglet : Générer une licence ──────────────────────── */}
-      {tab === 'generate' && (
+      {tab === 'generate' && isSuperAdmin && (
         <div className="max-w-lg">
           <div className="card p-6">
             <h3 className="font-semibold text-slate-900 mb-1">Générer une nouvelle licence</h3>

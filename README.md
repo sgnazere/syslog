@@ -1,99 +1,43 @@
 # SysLog — Système de gestion logistique
 
-## Stack technique
-- **Backend** : Node.js + Express + PostgreSQL (pg)
-- **Frontend** : React 18 + TypeScript + Vite + Tailwind CSS
-- **Auth** : JWT + bcryptjs
-- **RBAC** : 4 rôles — employee | manager | logistic | admin
+Application web de gestion des sorties terrain de l'ONG Espace Confiance : demandes de sortie (une ou plusieurs communes), validation avec affectation d'un véhicule et d'un chauffeur, clôture des missions avec kilométrage, parc automobile, chauffeurs, maintenance, notifications (application et WhatsApp), jours fériés, journal d'audit et licence.
 
-## Démarrage rapide
+**Stack** : React 18 + TypeScript + Vite · Node.js + Express · PostgreSQL
 
-### Prérequis
-- Node.js 18+
-- PostgreSQL 14+
-- npm ou yarn
+## Documentation
 
-### 1. Cloner et installer
+| Document | Public |
+|---|---|
+| [Documentation utilisateur](docs/DOCUMENTATION_UTILISATEUR.md) | Utilisateurs, managers, administrateurs |
+| [Documentation technique](docs/DOCUMENTATION_TECHNIQUE.md) | Développeurs, administrateurs système : architecture, installation, API, base de données, sécurité, audit, déploiement, feuille de route |
+
+## Démarrage rapide (développement)
+
 ```bash
 # Backend
-cd backend && npm install
-cp .env.example .env
-# → Renseigner DB_* et JWT_SECRET dans .env
+cd backend
+npm install
+cp .env.example .env            # renseigner DB_*, JWT_SECRET, LICENSE_SECRET
+npm run migrate
+npm run create-admin -- admin@exemple.ci Nom Prénom
+npm run dev                     # http://localhost:5000
 
 # Frontend
-cd ../frontend && npm install
+cd frontend
+npm install
+npm run dev                     # http://localhost:5173
 ```
 
-### 2. Base de données
+Détails, déploiement en production et dépannage : [documentation technique](docs/DOCUMENTATION_TECHNIQUE.md).
+
+## Tests
+
 ```bash
-# Créer la base de développement
-psql -U postgres -c "CREATE DATABASE eclog;"
-
-# Appliquer le schéma (si pas de DB existante)
-psql -U postgres -d eclog -f backend/src/migrations/schema.sql
-
-# Données initiales (utilisateurs + véhicules + jours fériés)
-cd backend && npm run seed
+cd backend && npm test                  # unitaires et HTTP
+cd backend && INTEGRATION=1 npm test    # + scénario complet sur la base configurée
+cd frontend && npm run typecheck && npm run build
 ```
 
-### 3. Lancer
-```bash
-# Terminal 1 — Backend
-cd backend && npm run dev     # http://localhost:5000
+---
 
-# Terminal 2 — Frontend
-cd frontend && npm run dev    # http://localhost:5173
-```
-
-## Comptes actuellement présents dans la base
-Les comptes ci-dessous reflètent l’état réel de la table `users` dans la base PostgreSQL. Les mots de passe ne sont pas lisibles directement dans la base car ils sont stockés hachés (bcrypt), mais ils peuvent être réinitialisés par un administrateur depuis l’interface ou via l’API.
-
-| Nom | Prénom | Email | Rôle | Statut |
-|------|--------|-------|------|--------|
-| ADMIN | System | ss.hf@ec-ci.org | Admin | Actif |
-| GNAZERE | Ouraga Alain Serge | sgnazere@gmail.com | Admin | Actif |
-| BOSSE | Zadou Marius | czo.hf@ec-ci.org | Utilisateur | Actif |
-| KRA | Kouakou Bertin | log.afd@ec-ci.org | Manager | Actif |
-| THES | HIBORY JOSEPH | czn.hf@ec-ci.org | Utilisateur | Actif |
-| KEIPO | VALENTIN | cpg.hf@ec-ci.org | Manager | Actif |
-
-> Pour obtenir ou réinitialiser un mot de passe, utiliser la procédure d’administration prévue dans le module “Accès & Rôles” du projet.
-
-## Structure du projet
-```
-syslog/
-├── backend/
-│   └── src/
-│       ├── config/       → Connexion PostgreSQL
-│       ├── controllers/  → Logique métier
-│       ├── middlewares/  → Auth JWT, audit, validation
-│       ├── routes/       → Endpoints API
-│       ├── services/     → Services réutilisables
-│       └── migrations/   → Schema SQL + seed
-├── frontend/
-│   └── src/
-│       ├── components/   → Composants réutilisables
-│       ├── contexts/     → AuthContext
-│       ├── hooks/        → Custom hooks (React Query)
-│       ├── lib/          → API client axios + constantes
-│       ├── pages/        → Pages de l'application
-│       └── types/        → Types TypeScript
-└── README.md
-```
-
-## Routes API principales
-| Méthode | Route | Rôle |
-|---------|-------|------|
-| POST | /api/auth/login | Public |
-| GET  | /api/auth/me | Tous |
-| GET  | /api/requests | Tous |
-| POST | /api/requests | Employé+ |
-| PATCH| /api/requests/:id/approve | Manager |
-| PATCH| /api/requests/:id/reject  | Manager |
-| PATCH| /api/requests/:id/assign  | Logistique |
-| GET  | /api/users | Admin |
-| POST | /api/users | Admin |
-| GET  | /api/vehicles | Tous |
-| GET  | /api/drivers  | Tous |
-| GET  | /api/reports/summary | Manager+ |
-| GET  | /api/audit | Admin |
+Gesmalync © 2026 — Développé pour ONG Espace Confiance

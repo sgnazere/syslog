@@ -13,7 +13,7 @@
 
 const crypto = require('crypto');
 
-const SECRET = process.env.LICENSE_SECRET || 'syslog_default_license_secret_change_in_production';
+const { licenseSecret: SECRET } = require('../config/env');
 
 /**
  * Génère une nouvelle clé de licence valide.
@@ -37,7 +37,7 @@ const generateKey = () => {
  * @returns {boolean}
  */
 const validateKeyFormat = (key) => {
-  if (!key || typeof key !== 'string') return false;
+  if (!key || typeof key !== 'string' || !SECRET) return false;
   const parts = key.trim().toUpperCase().split('-');
   if (parts.length !== 4 || parts[0] !== 'SL') return false;
 
@@ -51,7 +51,7 @@ const validateKeyFormat = (key) => {
     .slice(0, 8)
     .toUpperCase();
 
-  return sig === expected;
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 };
 
 /**

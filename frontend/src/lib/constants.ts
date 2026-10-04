@@ -2,16 +2,24 @@ import { UserRole, DemandeStatut, VehiculeStatut, ChauffeurStatut } from '../typ
 
 // Rôles UI
 export const ROLE_LABELS: Record<UserRole, string> = {
+  superadmin: 'Super-administrateur',
   admin:   'Administrateur',
   manager: 'Manager',
   user:    'Utilisateur',
 };
 
 export const ROLE_COLORS: Record<UserRole, string> = {
+  superadmin: 'bg-slate-800 text-white',
   admin:   'bg-purple-100 text-purple-800',
   manager: 'bg-amber-100  text-amber-800',
   user:    'bg-blue-100   text-blue-800',
 };
+
+/** Le super-administrateur dispose de tous les droits d'un administrateur. */
+export const hasRole = (role: UserRole | undefined, roles: UserRole[]) =>
+  !!role && (roles.includes(role) || (role === 'superadmin' && roles.includes('admin')));
+
+export const isAdminRole = (role: UserRole | undefined) => role === 'admin' || role === 'superadmin';
 
 // Statuts demandes
 export const DEMANDE_STATUT_CONFIG: Record<DemandeStatut, { label: string; color: string; bg: string; dot: string }> = {
